@@ -437,6 +437,11 @@
 		seams.setAttribute('viewBox', `0 0 ${n * 100} ${n * 100}`);
 		seams.setAttribute('preserveAspectRatio', 'none');
 		inner.appendChild(seams);
+		const hintLayer = document.createElementNS(SVG_NS, 'svg');
+		hintLayer.setAttribute('class', 'hint-layer');
+		hintLayer.setAttribute('viewBox', `0 0 ${n * 100} ${n * 100}`);
+		hintLayer.setAttribute('preserveAspectRatio', 'none');
+		inner.appendChild(hintLayer);
 		board.appendChild(inner);
 		placeTiles();
 		renderHinted();
@@ -488,8 +493,30 @@
 		});
 	}
 
+	/** 提示：两块布粗框跳动 + 贴「① 换」「② 换」+ 中间一条流动虚线连起来（线压在两块布下面，不挡标签）。 */
 	function renderHinted() {
-		tileEls.forEach((el, t) => el.classList.toggle('hinted', game.hinted.includes(t)));
+		tileEls.forEach((el, t) => {
+			el.classList.toggle('hinted', game.hinted.includes(t));
+			el.querySelector('.hint-tag')?.remove();
+		});
+		const layer = board.querySelector('.hint-layer');
+		if (!layer) return;
+		if (game.hinted.length !== 2 || game.done) {
+			layer.innerHTML = '';
+			return;
+		}
+		const n = game.puzzle.n;
+		const centers = game.hinted.map((t, k) => {
+			const tag = document.createElement('span');
+			tag.className = 'tag hint-tag';
+			tag.textContent = k === 0 ? '① 换' : '② 换';
+			tileEls[t].appendChild(tag);
+			const pos = game.perm.indexOf(t);
+			return [(pos % n) * 100 + 50, Math.floor(pos / n) * 100 + 50];
+		});
+		const [[x1, y1], [x2, y2]] = centers;
+		layer.innerHTML = `<line class="hint-link-bg" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`
+			+ `<line class="hint-link" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
 	}
 
 	function seamKey(s) {
@@ -776,7 +803,7 @@
 		renderHinted();
 		renderProps();
 		saveProgress();
-		setHint('把两块发光的布换一下');
+		setHint('把标着 ① ② 的两块布换一下');
 	});
 
 	// 重来：当前关回到开局，步数清零；已用掉的道具次数不退。点两下确认，防止误触
