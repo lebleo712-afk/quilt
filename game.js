@@ -4,16 +4,24 @@
 	const Q = window.Quilt;
 	const LEVELS = Q.LEVELS;
 	const EPOCH_KEY = '2026-10-25'; // 第 1 床的日期
-	const STORE_KEY = 'quilt-v3';
+	const STORE_KEY = 'quilt-v4';
 	const NAME_COUNT = 144;
 	const NAME_STRIDE = 37; // 和 144 互质，按天号轮到不重名
-	const DAY_LIMIT = { hint: 1, undo: 1 }; // 一天五关共用
-	const COUNTS_AS_DAY = 1; // 缝完第 2 关（下标 1）就算今天缝过
+	const DAY_LIMIT = { hint: 1, undo: 1 }; // 一天各关共用
+	const FREE_LEVELS = 2; // 新手、热身两关道具随便用，不扣当天次数
+	const COUNTS_AS_DAY = 2; // 缝完第 3 关「入门」（下标 2）就算今天缝过
+	/** 新手关每一步的讲解，跟着「先点这块 / 再点这块」走。 */
+	const TUTORIAL = [
+		'点写着「先点这块」的布，再点另一块，两块就会换位置',
+		'米色带虚线的边是被子外沿，要朝外放。再换一次',
+		'最后一步！换完所有接缝就都对上了',
+	];
 	const CELEBRATE_MS = 2400;
 	const CABINET_MAX = 30;
 	const SEAM_INSET = 16;
 	const DEBUG_HOSTS = ['localhost', '127.0.0.1'];
-	const NUM_MARK = ['①', '②', '③', '④', '⑤', '⑥'];
+	const NUM_MARK = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
+	const LEVEL_WORD = `${'零一二三四五六七'[LEVELS.length]}关`;
 
 	/** 花纹：颜色 + 形状，分不清颜色也能靠形状对。 */
 	const PATTERNS = {
@@ -356,14 +364,18 @@
 		show(g);
 		if (game.done) {
 			board.classList.add('done');
-			setHint(nextLevel(key) === null ? '今天五关全缝完了，明天再来' : '这一关缝好了');
+			setHint(nextLevel(key) === null ? `今天${LEVEL_WORD}全缝完了，明天再来` : '这一关缝好了');
 			return;
 		}
 		if (Q.isSolved(game.perm)) {
 			finish();
 			return;
 		}
-		if (level === 0 && !Object.keys(store.days).length && game.steps === 0) startGuide();
+		// 从没缝完过任何一关的新玩家：新手关每一步都带着点
+		if (level === 0 && !Object.keys(store.days).length) {
+			game = { ...game, tutorial: true };
+			startGuide();
+		}
 	}
 
 	function startPractice(level) {
@@ -373,7 +385,7 @@
 	}
 
 	/** 新手引导：挑一对换完能新缝上最多道线的布，让第一步就看到「缝上了」。 */
-	function startGuide() {
+	function startGuide(prefix = '') {
 		const { tiles, n } = game.puzzle;
 		const base = Q.matchedSeams(tiles, game.perm, n).length;
 		let best = null;
@@ -384,7 +396,11 @@
 			if (!best || gain > best.gain) best = { gain, pair: [game.perm[pos], game.perm[j]] };
 		});
 		guide = best ? best.pair : null;
-		renderGuide();
+		renderGuide(prefix);
+	}
+
+	function tutorialText() {
+		return TUTORIAL[Math.min(game.steps, TUTORIAL.length - 1)];
 	}
 
 	// ---------- 渲染 ----------
@@ -427,7 +443,9 @@
 		renderStats(false);
 		renderProps();
 		renderBottom();
-		setHint(g.level === 0 ? '先缝一床小的热身' : `第 ${g.level + 1} 关 · ${g.spec.label}：${g.puzzle.n * g.puzzle.n} 块布`);
+		setHint(g.level === 0 ? '新手关：三步就能缝好'
+			: g.level === 1 ? '热身：这次自己来，先找四个角'
+				: `第 ${g.level + 1} 关 · ${g.spec.label}：${g.puzzle.n * g.puzzle.n} 块布`);
 	}
 
 	function renderHeader() {
@@ -511,7 +529,7 @@
 
 	/** 道具剩余次数：练习和热身不限，其余关卡一天共用。 */
 	function propLeft(kind) {
-		if (game.mode === 'practice' || game.level === 0) return Infinity;
+		if (game.mode === 'practice' || game.level < FREE_LEVELS) return Infinity;
 		return Math.max(0, DAY_LIMIT[kind] - usedProps(game.key)[kind]);
 	}
 
@@ -550,7 +568,7 @@
 		$('hint').textContent = text;
 	}
 
-	function renderGuide() {
+	function renderGuide(prefix = '') {
 		tileEls.forEach(el => el.querySelector('.tag')?.remove());
 		if (!guide || game.done) return;
 		const [a, b] = guide;
@@ -558,7 +576,7 @@
 		tag.className = 'tag';
 		tag.textContent = selected === a ? '再点这块' : '先点这块';
 		tileEls[selected === a ? b : a].appendChild(tag);
-		setHint('跟着提示点两下，看看两块布怎么换位置');
+		setHint(prefix + (game.tutorial ? tutorialText() : '跟着提示点两下，看看两块布怎么换位置'));
 	}
 
 	function cornersDone() {
@@ -697,7 +715,8 @@
 			return;
 		}
 		saveProgress();
-		if (wasGuided) setHint(fresh > 0 ? `看，对上的接缝自动缝上了 ${fresh} 道线` : '换好了，接着拼吧');
+		if (game.tutorial) startGuide(fresh > 0 ? `缝上了 ${fresh} 道线！` : '');
+		else if (wasGuided) setHint(fresh > 0 ? `看，对上的接缝自动缝上了 ${fresh} 道线` : '换好了，接着拼吧');
 		else if (game.steps - game.puzzle.min > game.spec.stars[0]) setHint('多试几步也没关系，慢慢来');
 		else setHint(cornersDone() ? TIPS[game.steps % TIPS.length] : TIP_CORNER);
 	}
@@ -717,7 +736,7 @@
 	/** 本关用过道具就没有金针（热身、练习也一样）；只有第 2–5 关扣当天的次数。 */
 	function spendProp(kind) {
 		game = { ...game, levelProps: game.levelProps + 1 };
-		if (game.mode !== 'daily' || game.level === 0) return;
+		if (game.mode !== 'daily' || game.level < FREE_LEVELS) return;
 		const used = usedProps(game.key);
 		saveStore({ dayProps: { ...used, [kind]: used[kind] + 1 } });
 	}
@@ -820,11 +839,11 @@
 		return '★'.repeat(stars) + '☆'.repeat(3 - stars);
 	}
 
-	/** 🏆 要地狱关三星才给；五关都缝完但地狱没三星，只算全通。 */
+	/** 🏆 要地狱关三星才给；各关都缝完但地狱没三星，只算全通。 */
 	function dayTitle(key) {
 		const done = dayLevels(key);
 		if (Object.keys(done).length < LEVELS.length) return '';
-		return done[LEVELS.length - 1].stars === 3 ? '🏆 五关全通 · 地狱三星' : '🧵 五关全通';
+		return done[LEVELS.length - 1].stars === 3 ? `🏆 ${LEVEL_WORD}全通 · 地狱三星` : `🧵 ${LEVEL_WORD}全通`;
 	}
 
 	/** 分享今天缝到第几关、每关几星几步。不带任何布块位置，不剧透。 */
@@ -869,7 +888,7 @@
 		if (isDaily) $('share-preview').textContent = shareText(g.key);
 		$('share-toast').textContent = '';
 		const trophyTip = isDaily && next === null && !dayTitle(g.key).startsWith('🏆') ? '地狱关拿到三星才有 🏆。' : '';
-		$('win-next').textContent = isDaily && next === null ? `${trophyTip}明天的五关 ${untilMidnight()} 后上新` : '';
+		$('win-next').textContent = isDaily && next === null ? `${trophyTip}明天的${LEVEL_WORD} ${untilMidnight()} 后上新` : '';
 		$('btn-win-practice').hidden = !isDaily || !dayLevels(g.key)[COUNTS_AS_DAY];
 		game = { ...game, winShown: true };
 		$('dlg-win').showModal();
@@ -921,7 +940,7 @@
 
 	// ---------- 被柜 ----------
 	function renderCabinet() {
-		// 缝完第 2 关的日子才算「缝过」；只画最近 30 天，太多会卡
+		// 缝完「入门」关的日子才算「缝过」；只画最近 30 天，太多会卡
 		const keys = Object.keys(store.days).filter(k => dayLevels(k)[COUNTS_AS_DAY]).sort().reverse();
 		const shown = keys.slice(0, CABINET_MAX);
 		$('cabinet-summary').textContent = keys.length
@@ -933,7 +952,7 @@
 				const top = Math.max(...Object.keys(done).map(Number));
 				const pz = levelPuzzle(k, top);
 				const all = Object.keys(done).length === LEVELS.length;
-				const title = all ? (dayTitle(k).startsWith('🏆') ? '🏆 地狱三星' : '五关全通') : `第 ${top + 1} 关`;
+				const title = all ? (dayTitle(k).startsWith('🏆') ? '🏆 地狱三星' : `${LEVEL_WORD}全通`) : `第 ${top + 1} 关`;
 				return `<div class="cab-item">${tilesSvg(pz.tiles, pz.n)}<strong>${escapeHtml(nameForDay(dayNumber(k)))}</strong><span>#${dayNumber(k)} · ${title}</span></div>`;
 			}).join('') + (keys.length > CABINET_MAX ? `<p class="cab-empty">更早的 ${keys.length - CABINET_MAX} 床收在柜子深处</p>` : '')
 			: '<p class="cab-empty">还没有缝好的被子，先缝今天这床吧</p>';
@@ -947,7 +966,7 @@
 	function renderStatic() {
 		$('demo-match').innerHTML = tilesSvg([[2, 1, 3, 4], [4, 5, 2, 1]], 2, [[100, 16, 100, 84]]);
 		$('demo-border').innerHTML = tilesSvg([[0, 3, 1, 0], [0, 0, 2, 3]], 2, [[100, 16, 100, 84]]);
-		$('practice-choice').innerHTML = LEVELS.map((L, i) => (i === 0 ? '' :
+		$('practice-choice').innerHTML = LEVELS.map((L, i) => (i < FREE_LEVELS ? '' :
 			`<button class="choice-btn" data-practice="${i}">${L.label}<small>${L.n}×${L.n} · ${L.colors} 种花</small></button>`)).join('');
 	}
 

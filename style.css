@@ -252,7 +252,7 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 
 .side { flex: 1; display: flex; flex-direction: column; gap: 10px; }
 
-.levels { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.levels { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
 .level-chip {
 	display: flex; flex-direction: column; align-items: center; justify-content: center;
 	min-height: 48px;

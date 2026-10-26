@@ -325,6 +325,7 @@
 
 	/** 每天同一套关卡，从易到难。所有人每天玩的都一样。 */
 	const LEVELS = [
+		{ label: '新手', n: 3, colors: 5, min: [3, 3], stars: [2, 6] },
 		{ label: '热身', n: 3, colors: 5, min: [3, 4], stars: [2, 6] },
 		{ label: '入门', n: 4, colors: 4, guesses: [0, 0], min: [7, 9], stars: [2, 6] },
 		{ label: '进阶', n: 5, colors: 4, guesses: [1, 1], balance: [0.15, 0.35], min: [10, 12], stars: [2, 4] },
