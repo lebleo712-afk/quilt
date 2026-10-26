@@ -49,7 +49,7 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 
 .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .title-block h1 { margin: 0; font-family: var(--font-title); font-size: 28px; letter-spacing: .1em; font-weight: 700; line-height: 1.15; }
-.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 15px; }
+.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 15px; word-break: keep-all; }
 .top-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
 .pill-btn {
@@ -91,7 +91,7 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 	left: 0; top: 0;
 	width: var(--size);
 	height: var(--size);
-	padding: var(--gap, 1.5px);
+	padding: 1.5px;
 	transform: translate(calc(var(--x) * 100%), calc(var(--y) * 100%)) scale(var(--s, 1));
 	transition: transform var(--swap-ms) cubic-bezier(.2, .8, .2, 1), padding 600ms ease;
 	z-index: 1;
@@ -102,8 +102,8 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 .tile.sel svg { box-shadow: 0 0 0 3px var(--ink), var(--shadow); }
 .tile.drop svg { box-shadow: 0 0 0 3px var(--accent); }
 .tile.moving { z-index: 2; }
-/* 四边都缝上的布轻轻褪色退后，没放好的自然跳出来 */
-.tile.placed::after { content: ''; position: absolute; inset: var(--gap, 1.5px); border-radius: 3px; background: rgba(243, 233, 216, .24); pointer-events: none; }
+/* 四边都缝上的布轻轻褪色退后，没放好的自然跳出来；整床缝好时去掉，成品是满色的 */
+.tile.placed::after { content: ''; position: absolute; inset: 1.5px; border-radius: 3px; background: rgba(243, 233, 216, .13); pointer-events: none; }
 .board.done .tile.placed::after, .tile.sel.placed::after, .tile.hinted.placed::after { display: none; }
 .tile.hinted { z-index: 5; }
 .tile.hinted svg {
@@ -141,6 +141,7 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 @keyframes pop { from { transform: scale(.2); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
 .seam-label {
 	position: absolute;
+	opacity: 0; /* 错开出现时，延迟期间先不显示 */
 	transform: translate(-50%, -50%);
 	z-index: 7;
 	padding: 3px 8px;
@@ -165,6 +166,7 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 
 .banner {
 	position: absolute; left: 50%; top: 50%;
+	width: max-content; max-width: 92%; /* 居中用的 left:50% 会把宽度限在一半，标题被挤断 */
 	transform: translate(-50%, -60%) scale(.9);
 	opacity: 0;
 	pointer-events: none;
@@ -177,8 +179,8 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 	transition: opacity 400ms ease, transform 500ms cubic-bezier(.2, .9, .3, 1.3);
 }
 .banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-.banner-name { margin: 0; font-family: var(--font-title); font-size: 26px; letter-spacing: .1em; }
-.banner-stars { margin: 4px 0 0; font-size: 30px; letter-spacing: 6px; color: var(--gold); min-height: 1.2em; }
+.banner-name { margin: 0; white-space: nowrap; font-family: var(--font-title); font-size: 26px; letter-spacing: .1em; }
+.banner-stars { margin: 4px 0 0; white-space: nowrap; font-size: 30px; letter-spacing: 6px; color: var(--gold); min-height: 1.2em; }
 .banner-stars span { display: inline-block; animation: star-in 380ms cubic-bezier(.2, .9, .3, 1.5) both; }
 @keyframes star-in { from { transform: scale(0) rotate(-40deg); opacity: 0; } }
 

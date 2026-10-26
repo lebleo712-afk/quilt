@@ -530,7 +530,7 @@
 		return `${s.dir}${s.r}-${s.c}`;
 	}
 
-	/** 按棋盘实际大小设提示线宽下限和块间缝隙（SVG 单位：每格 100）。 */
+	/** 按棋盘实际大小设提示线宽下限（SVG 单位：每格 100）。 */
 	function updateLineScale() {
 		const inner = board.querySelector('.board-inner');
 		if (!inner || !game || !inner.clientWidth) return;
@@ -540,8 +540,6 @@
 		const vars = {
 			'--hint-under': unit(12, LINE_MIN_PX.hintUnder),
 			'--hint-w': unit(6, LINE_MIN_PX.hint),
-			// 块间留缝露出底板：没对上的接缝是「开着的」，对上的由针脚盖住
-			'--gap': `${Math.max(1.5, px * 100 * 0.035).toFixed(2)}px`,
 		};
 		Object.entries(vars).forEach(([k, v]) => inner.style.setProperty(k, v));
 	}
@@ -596,14 +594,16 @@
 	function showSewnLabels(points, n) {
 		const inner = board.querySelector('.board-inner');
 		inner.querySelectorAll('.seam-label').forEach(el => el.remove());
-		points.forEach(([x, y]) => {
+		// 一步缝上好几道时错开飘出；5×5、6×6 格子小，只飘 ✓，免得叠在一起盖住布
+		points.forEach(([x, y], i) => {
 			const el = document.createElement('span');
 			el.className = 'seam-label';
-			el.textContent = '缝上了 ✓';
+			el.textContent = n >= 5 ? '✓' : '缝上了 ✓';
+			el.style.animationDelay = `${i * 110}ms`;
 			el.style.left = `${x / n}%`;
 			el.style.top = `${y / n}%`;
 			inner.appendChild(el);
-			setTimeout(() => el.remove(), 1700);
+			setTimeout(() => el.remove(), 1700 + i * 110);
 		});
 	}
 
@@ -673,7 +673,9 @@
 		tag.className = 'tag';
 		tag.textContent = selected === a ? '再点这块' : '先点这块';
 		tileEls[selected === a ? b : a].appendChild(tag);
-		setHint(prefix + (game.tutorial ? tutorialText() : '跟着提示点两下，看看两块布怎么换位置'));
+		const text = selected === a ? '好，再点写着「再点这块」的布，两块就换位置了'
+			: game.tutorial ? tutorialText() : '跟着提示点两下，看看两块布怎么换位置';
+		setHint(prefix + text);
 	}
 
 	function cornersDone() {
@@ -1134,7 +1136,13 @@
 		if (next !== null) playLevel(game.key, next);
 	}
 	document.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', () => btn.closest('dialog').close()));
-	$('btn-help').addEventListener('click', () => $('dlg-help').showModal());
+	$('btn-help').addEventListener('click', openHelp);
+	/** 打开玩法：焦点会落到底部的「开始缝」把内容滚到底，打开后滚回顶部，先看到标题和示意图。 */
+	function openHelp() {
+		const dlg = $('dlg-help');
+		dlg.showModal();
+		requestAnimationFrame(() => { dlg.scrollTop = 0; });
+	}
 	$('dlg-help').addEventListener('close', () => {
 		if (!store.seenHelp) saveStore({ seenHelp: true });
 	});
@@ -1221,5 +1229,5 @@
 		saveStore({ progress: null });
 		startDaily();
 	}
-	if (!store.seenHelp) $('dlg-help').showModal();
+	if (!store.seenHelp) openHelp();
 })();
