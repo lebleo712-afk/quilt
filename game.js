@@ -7,8 +7,9 @@
 	const STORE_KEY = 'quilt-v4';
 	const NAME_COUNT = 144;
 	const NAME_STRIDE = 37; // 和 144 互质，按天号轮到不重名
-	const DAY_LIMIT = { hint: 1, undo: 1 }; // 一天各关共用
-	const FREE_LEVELS = 2; // 新手、热身两关道具随便用，不扣当天次数
+	const LEVEL_LIMIT = { hint: 1, undo: 1 }; // 每关各一次，重来后补满
+	const NO_PROPS_USED = { hint: 0, undo: 0 };
+	const FREE_LEVELS = 2; // 新手、热身两关道具随便用
 	const COUNTS_AS_DAY = 2; // 缝完第 3 关「入门」（下标 2）就算今天缝过
 	/** 新手关每一步的讲解，跟着「先点这块 / 再点这块」走。 */
 	const TUTORIAL = [
@@ -326,7 +327,7 @@
 		const size = fields.puzzle.n * fields.puzzle.n;
 		return {
 			perm: fields.puzzle.start, steps: 0, moves: new Array(size).fill(0), history: [], hinted: [],
-			levelProps: 0, restarts: 0, done: false, ...fields,
+			levelProps: 0, propsUsed: NO_PROPS_USED, restarts: 0, done: false, ...fields,
 		};
 	}
 
@@ -360,6 +361,7 @@
 					history: prev ? [prev] : [],
 					hinted: validTilePair(p.hinted, size) ? p.hinted : [],
 					levelProps: isInt(p.levelProps) ? p.levelProps : 0,
+					propsUsed: p.propsUsed && isInt(p.propsUsed.hint) && isInt(p.propsUsed.undo) ? p.propsUsed : NO_PROPS_USED,
 					restarts: isInt(p.restarts) ? p.restarts : 0,
 				};
 			}
@@ -575,16 +577,16 @@
 		}
 	}
 
-	/** 道具剩余次数：练习和热身不限，其余关卡一天共用。 */
+	/** 道具剩余次数：练习、新手、热身不限，其余关卡每关各一次（重来补满）。 */
 	function propLeft(kind) {
 		if (game.mode === 'practice' || game.level < FREE_LEVELS) return Infinity;
-		return Math.max(0, DAY_LIMIT[kind] - usedProps(game.key)[kind]);
+		return Math.max(0, LEVEL_LIMIT[kind] - game.propsUsed[kind]);
 	}
 
 	function renderProps() {
 		const hl = propLeft('hint'), ul = propLeft('undo');
-		$('hint-left').textContent = hl === Infinity ? '' : `今日×${hl}`;
-		$('undo-left').textContent = ul === Infinity ? '' : `今日×${ul}`;
+		$('hint-left').textContent = hl === Infinity ? '' : `×${hl}`;
+		$('undo-left').textContent = ul === Infinity ? '' : `×${ul}`;
 		$('btn-hint').disabled = game.done || hl <= 0;
 		$('btn-undo').disabled = game.done || ul <= 0 || !game.history.length;
 		$('btn-restart').disabled = game.done || game.steps === 0;
@@ -777,15 +779,15 @@
 		saveStore({
 			progress: {
 				date: game.key, level: game.level, perm: game.perm, steps: game.steps, moves: game.moves,
-				prev: last, hinted: game.hinted, levelProps: game.levelProps, restarts: game.restarts,
+				prev: last, hinted: game.hinted, levelProps: game.levelProps, propsUsed: game.propsUsed, restarts: game.restarts,
 			},
 		});
 	}
 
 	// ---------- 道具 ----------
-	/** 本关用过道具就没有金针（热身、练习也一样）；只有第 2–5 关扣当天的次数。 */
+	/** 本关用过道具就没有金针（重来也不恢复）；当天总数只用来写进分享。 */
 	function spendProp(kind) {
-		game = { ...game, levelProps: game.levelProps + 1 };
+		game = { ...game, levelProps: game.levelProps + 1, propsUsed: { ...game.propsUsed, [kind]: game.propsUsed[kind] + 1 } };
 		if (game.mode !== 'daily' || game.level < FREE_LEVELS) return;
 		const used = usedProps(game.key);
 		saveStore({ dayProps: { ...used, [kind]: used[kind] + 1 } });
@@ -806,7 +808,7 @@
 		setHint('把标着 ① ② 的两块布换一下');
 	});
 
-	// 重来：当前关回到开局，步数清零；已用掉的道具次数不退。点两下确认，防止误触
+	// 重来：当前关回到开局，步数清零，提示和撤回补满（金针照样没有）。点两下确认，防止误触
 	let restartArmed = null;
 	function disarmRestart() {
 		clearTimeout(restartArmed);
@@ -832,7 +834,7 @@
 		game = {
 			...game,
 			perm: game.puzzle.start, steps: 0, moves: new Array(size).fill(0), history: [], hinted: [],
-			restarts: game.restarts + 1,
+			propsUsed: NO_PROPS_USED, restarts: game.restarts + 1,
 		};
 		select(null);
 		guide = null;
@@ -846,7 +848,7 @@
 		sound.swap();
 		buzz([8, 40, 8]);
 		if (game.tutorial) startGuide('重新开始了。');
-		else setHint('这一关重新开始了，步数从 0 算');
+		else setHint(game.level < FREE_LEVELS || game.mode === 'practice' ? '这一关重新开始了，步数从 0 算' : '重新开始了，提示和撤回已补满');
 	}
 
 	$('btn-undo').addEventListener('click', () => {
