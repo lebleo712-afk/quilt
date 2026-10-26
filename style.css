@@ -117,9 +117,28 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 }
 
 .seams { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; overflow: visible; }
-.seam { stroke: #FFF7E8; stroke-width: 3.2; stroke-linecap: round; stroke-dasharray: 7 6; opacity: .85; }
-.seam.new { animation: sew 420ms ease-out; }
-@keyframes sew { from { stroke-dashoffset: 40; opacity: 1; stroke-width: 5; } to { stroke-dashoffset: 0; opacity: .85; } }
+.seam-bg { stroke: #FFF8EC; stroke-width: 9; stroke-linecap: round; opacity: .85; }
+.seam { stroke: #5B3A22; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 8 6; }
+.seam.new { animation: sew 500ms ease-out; }
+.seam-bg.new { animation: sew-bg 500ms ease-out; }
+@keyframes sew-bg { from { opacity: 0; } }
+.seam-pop { fill: none; stroke: var(--gold); stroke-width: 6; opacity: 0; transform-box: fill-box; transform-origin: center; animation: pop 800ms ease-out; }
+@keyframes pop { from { transform: scale(.2); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
+.seam-label {
+	position: absolute;
+	transform: translate(-50%, -50%);
+	z-index: 7;
+	padding: 3px 8px;
+	border-radius: 10px;
+	background: var(--ink);
+	color: #FFF8EF;
+	font-size: 13px; font-weight: 700;
+	white-space: nowrap;
+	pointer-events: none;
+	animation: float-up 1.6s ease-out forwards;
+}
+@keyframes float-up { 0% { opacity: 0; transform: translate(-50%, -30%) scale(.8); } 15% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -130%); } }
+@keyframes sew { from { stroke-dashoffset: 60; stroke-width: 7; } to { stroke-dashoffset: 0; } }
 
 /* 缝好：布块之间的缝隙收拢，缝线变金 */
 .board.done .tile { padding: 0; }
@@ -155,13 +174,17 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 .props { display: flex; gap: 10px; justify-content: center; }
 .props[hidden] { display: none; }
 .prop-btn {
-	min-width: 110px; height: 44px;
+	flex: 1;
+	max-width: 140px;
+	min-width: 0;
+	padding: 0 6px; height: 44px;
 	border-radius: 22px;
 	border: 1px solid var(--line);
 	background: var(--paper);
 	font-size: 16px;
 }
 .prop-btn span { color: var(--muted); font-size: 14px; }
+.prop-btn.armed { background: var(--accent); color: #FFF8EF; border-color: var(--accent); white-space: nowrap; }
 .prop-btn:disabled { opacity: .45; cursor: default; }
 .prop-btn:not(:disabled):active { transform: scale(.96); }
 
@@ -310,7 +333,7 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 	.level-chip { min-height: 38px; }
 	.steps-num { font-size: 24px; }
 	.goal, .hint, .seam-count { font-size: 13px; }
-	.prop-btn { height: 36px; min-width: 96px; font-size: 14px; }
+	.prop-btn { height: 36px; font-size: 14px; }
 	.text-btn { min-height: 36px; padding: 6px 4px; font-size: 14px; }
 }
 
@@ -334,7 +357,3 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 	.steps-num { font-size: 28px; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-	:root { --swap-ms: 1ms; }
-	.seam.new, .board.done, .board.done .seam, .steps-num.bump, .tile.hinted svg, .banner-stars span { animation: none; }
-}

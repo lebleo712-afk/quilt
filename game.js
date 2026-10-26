@@ -12,7 +12,7 @@
 	const COUNTS_AS_DAY = 2; // 缝完第 3 关「入门」（下标 2）就算今天缝过
 	/** 新手关每一步的讲解，跟着「先点这块 / 再点这块」走。 */
 	const TUTORIAL = [
-		'点写着「先点这块」的布，再点另一块，两块就会换位置',
+		'两块布挨着的那半边，颜色和形状一样就能缝上。先点写着「先点这块」的布',
 		'米色带虚线的边是被子外沿，要朝外放。再换一次',
 		'最后一步！换完所有接缝就都对上了',
 	];
@@ -95,7 +95,7 @@
 
 	function cleanLevel(l) {
 		if (!l || typeof l !== 'object' || !isInt(l.steps) || !isInt(l.min) || ![1, 2, 3].includes(l.stars)) return null;
-		return { steps: l.steps, min: l.min, stars: l.stars, gold: l.gold === true };
+		return { steps: l.steps, min: l.min, stars: l.stars, gold: l.gold === true, restarts: isInt(l.restarts) ? l.restarts : 0 };
 	}
 
 	function cleanDay(d) {
@@ -259,7 +259,9 @@
 			out += `<g transform="translate(${(i % cols) * 100},${Math.floor(i / cols) * 100})">${tileSvgInner(tile)}</g>`;
 		});
 		seams.forEach(([x1, y1, x2, y2]) => {
-			out += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#FFF7E8" stroke-width="4" stroke-dasharray="7 6"/>`;
+			const xy = `x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"`;
+			out += `<line ${xy} stroke="#FFF8EC" stroke-width="9" stroke-linecap="round" opacity=".85"/>`;
+			out += `<line ${xy} stroke="#5B3A22" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 6"/>`;
 		});
 		return out + '</svg>';
 	}
@@ -324,7 +326,7 @@
 		const size = fields.puzzle.n * fields.puzzle.n;
 		return {
 			perm: fields.puzzle.start, steps: 0, moves: new Array(size).fill(0), history: [], hinted: [],
-			levelProps: 0, done: false, ...fields,
+			levelProps: 0, restarts: 0, done: false, ...fields,
 		};
 	}
 
@@ -358,6 +360,7 @@
 					history: prev ? [prev] : [],
 					hinted: validTilePair(p.hinted, size) ? p.hinted : [],
 					levelProps: isInt(p.levelProps) ? p.levelProps : 0,
+					restarts: isInt(p.restarts) ? p.restarts : 0,
 				};
 			}
 		}
@@ -498,23 +501,41 @@
 		const n = game.puzzle.n;
 		const list = Q.matchedSeams(game.puzzle.tiles, game.perm, n);
 		const svg = board.querySelector('.seams');
-		let fresh = 0;
+		const fresh = [];
+		// 每道缝：白色衬底 + 深色针脚，任何颜色的布上都看得清；刚缝上的再弹一圈金光
 		svg.innerHTML = list.map(s => {
 			const isNew = animate && !before.has(seamKey(s));
-			if (isNew) fresh++;
-			const cls = `seam${isNew ? ' new' : ''}`;
-			if (s.dir === 'h') {
-				const x = (s.c + 1) * 100;
-				return `<line class="${cls}" x1="${x}" y1="${s.r * 100 + SEAM_INSET}" x2="${x}" y2="${(s.r + 1) * 100 - SEAM_INSET}"/>`;
-			}
-			const y = (s.r + 1) * 100;
-			return `<line class="${cls}" x1="${s.c * 100 + SEAM_INSET}" y1="${y}" x2="${(s.c + 1) * 100 - SEAM_INSET}" y2="${y}"/>`;
+			const [x1, y1, x2, y2] = s.dir === 'h'
+				? [(s.c + 1) * 100, s.r * 100 + SEAM_INSET, (s.c + 1) * 100, (s.r + 1) * 100 - SEAM_INSET]
+				: [s.c * 100 + SEAM_INSET, (s.r + 1) * 100, (s.c + 1) * 100 - SEAM_INSET, (s.r + 1) * 100];
+			const mid = [(x1 + x2) / 2, (y1 + y2) / 2];
+			if (isNew) fresh.push(mid);
+			const xy = `x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"`;
+			const nw = isNew ? ' new' : '';
+			return `<line class="seam-bg${nw}" ${xy}/><line class="seam${nw}" ${xy}/>`
+				+ (isNew ? `<circle class="seam-pop" cx="${mid[0]}" cy="${mid[1]}" r="30"/>` : '');
 		}).join('');
+		showSewnLabels(fresh, n);
 		game.seamSet = new Set(list.map(seamKey));
 		const total = Q.seamTotal(n);
 		$('progress-fill').style.width = `${(list.length / total) * 100}%`;
 		$('seam-count').textContent = `已缝 ${list.length}/${total} 道`;
-		return fresh;
+		return fresh.length;
+	}
+
+	/** 在刚缝上的接缝旁飘出「缝上了 ✓」，一眼看出这一步缝上了哪几道。 */
+	function showSewnLabels(points, n) {
+		const inner = board.querySelector('.board-inner');
+		inner.querySelectorAll('.seam-label').forEach(el => el.remove());
+		points.forEach(([x, y]) => {
+			const el = document.createElement('span');
+			el.className = 'seam-label';
+			el.textContent = '缝上了 ✓';
+			el.style.left = `${x / n}%`;
+			el.style.top = `${y / n}%`;
+			inner.appendChild(el);
+			setTimeout(() => el.remove(), 1700);
+		});
 	}
 
 	function renderStats(bump) {
@@ -539,6 +560,8 @@
 		$('undo-left').textContent = ul === Infinity ? '' : `今日×${ul}`;
 		$('btn-hint').disabled = game.done || hl <= 0;
 		$('btn-undo').disabled = game.done || ul <= 0 || !game.history.length;
+		$('btn-restart').disabled = game.done || game.steps === 0;
+		if (restartArmed && game.steps === 0) disarmRestart();
 		$('props').hidden = game.done;
 	}
 
@@ -715,7 +738,7 @@
 			return;
 		}
 		saveProgress();
-		if (game.tutorial) startGuide(fresh > 0 ? `缝上了 ${fresh} 道线！` : '');
+		if (game.tutorial) startGuide(fresh > 0 ? `看，深色针脚就是缝上了（${fresh} 道）！` : '');
 		else if (wasGuided) setHint(fresh > 0 ? `看，对上的接缝自动缝上了 ${fresh} 道线` : '换好了，接着拼吧');
 		else if (game.steps - game.puzzle.min > game.spec.stars[0]) setHint('多试几步也没关系，慢慢来');
 		else setHint(cornersDone() ? TIPS[game.steps % TIPS.length] : TIP_CORNER);
@@ -727,7 +750,7 @@
 		saveStore({
 			progress: {
 				date: game.key, level: game.level, perm: game.perm, steps: game.steps, moves: game.moves,
-				prev: last, hinted: game.hinted, levelProps: game.levelProps,
+				prev: last, hinted: game.hinted, levelProps: game.levelProps, restarts: game.restarts,
 			},
 		});
 	}
@@ -756,6 +779,49 @@
 		setHint('把两块发光的布换一下');
 	});
 
+	// 重来：当前关回到开局，步数清零；已用掉的道具次数不退。点两下确认，防止误触
+	let restartArmed = null;
+	function disarmRestart() {
+		clearTimeout(restartArmed);
+		restartArmed = null;
+		$('btn-restart').textContent = '重来';
+		$('btn-restart').classList.remove('armed');
+	}
+	$('btn-restart').addEventListener('click', () => {
+		if (!game || game.done || game.steps === 0) return;
+		if (!restartArmed) {
+			$('btn-restart').textContent = '确认重来';
+			$('btn-restart').classList.add('armed');
+			restartArmed = setTimeout(disarmRestart, 3000);
+			return;
+		}
+		disarmRestart();
+		restartLevel();
+	});
+
+	function restartLevel() {
+		const size = game.puzzle.n * game.puzzle.n;
+		const before = game.seamSet;
+		game = {
+			...game,
+			perm: game.puzzle.start, steps: 0, moves: new Array(size).fill(0), history: [], hinted: [],
+			restarts: game.restarts + 1,
+		};
+		select(null);
+		guide = null;
+		renderGuide();
+		renderHinted();
+		placeTiles();
+		renderSeams(before, false);
+		renderStats(true);
+		renderProps();
+		saveProgress();
+		sound.swap();
+		buzz([8, 40, 8]);
+		if (game.tutorial) startGuide('重新开始了。');
+		else setHint('这一关重新开始了，步数从 0 算');
+	}
+
 	$('btn-undo').addEventListener('click', () => {
 		if (!game || game.done || !game.history.length || propLeft('undo') <= 0) return;
 		const before = game.seamSet;
@@ -782,6 +848,7 @@
 			steps: game.steps, min: game.puzzle.min,
 			stars: Q.starsFor(game.steps, game.puzzle.min, game.spec.stars),
 			gold: game.steps === game.puzzle.min && game.levelProps === 0,
+			restarts: game.restarts,
 		};
 		game = { ...game, done: true, record, hinted: [], winShown: false };
 		select(null);
@@ -859,6 +926,8 @@
 		});
 		const used = usedProps(key);
 		if (used.hint + used.undo) lines.push(`用了道具 ${used.hint + used.undo} 次`);
+		const restarts = Object.values(done).reduce((k, r) => k + (r.restarts || 0), 0);
+		if (restarts) lines.push(`重来 ${restarts} 次`);
 		lines.push('你能缝到第几关？', location.origin + location.pathname);
 		return lines.join('\n');
 	}
