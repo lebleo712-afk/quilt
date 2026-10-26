@@ -21,23 +21,26 @@
 	const CABINET_MAX = 30;
 	const SEAM_INSET = 16;
 	// 格子小（5×5、6×6）时针脚和提示线不能跟着缩没了：屏幕像素下限
-	const LINE_MIN_PX = { under: 6, stitch: 3, dash: 6, dashGap: 5, hintUnder: 9, hint: 4.5 };
+	const LINE_MIN_PX = { hintUnder: 9, hint: 4.5 };
 	const DEBUG_HOSTS = ['localhost', '127.0.0.1'];
 	const NUM_MARK = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
 	const LEVEL_WORD = `${'零一二三四五六七'[LEVELS.length]}关`;
 
-	/** 花纹：颜色 + 形状，分不清颜色也能靠形状对。 */
+	/**
+	 * 花纹：颜色 + 形状，分不清颜色也能靠形状对。
+	 * 颜色用旧棉布那种柔和的色，色弱也能分开（拉开明度）；形状用同色系浅一档（tint），满盘 6×6 不再是一块块亮白。
+	 */
 	const PATTERNS = {
-		1: { color: '#C65A3A', shape: 'circle' },
-		2: { color: '#E0A93B', shape: 'square' },
-		3: { color: '#2F5A86', shape: 'diamond' },
-		4: { color: '#7E9D5C', shape: 'star' },
-		5: { color: '#8C5A82', shape: 'plus' },
+		1: { color: '#A9503A', tint: '#E4C5B6', shape: 'circle' },
+		2: { color: '#DDA94A', tint: '#8C5F1E', shape: 'square' }, // 黄底太亮，浅色形状看不出，用深一档
+		3: { color: '#36597D', tint: '#C4C8C9', shape: 'diamond' },
+		4: { color: '#7FA37A', tint: '#D8DDC8', shape: 'star' },
+		5: { color: '#9C7397', tint: '#E0CFD0', shape: 'plus' },
 	};
+	const SHAPE_SCALE = 0.9; // 形状缩小一些，留出更多布面
 	const BORDER_FILL = '#EFE5D4';
 	const BORDER_STITCH = '#B8A589';
-	const SHAPE_FILL = '#FBF3E6';
-	const SHAPE_EDGE = 'rgba(58,46,36,.45)';
+	const SHAPE_EDGE = 'rgba(58,46,36,.65)'; // 小屏上绿星、黄方靠这道描边认出来
 	const NAME_A = ['外婆的', '秋日', '雨后', '灯下', '小院', '晨光', '山间', '年夜', '村口', '窗边', '午后', '老屋'];
 	const NAME_B = ['牡丹', '石榴', '格子', '星星', '麦田', '梅花', '风车', '橘子', '荷塘', '燕子', '柿子', '月亮'];
 	const TIP_CORNER = '从四个角开始拼：两道米色外沿的布放角上';
@@ -219,9 +222,9 @@
 		{ tri: '0,100 0,0 50,50', mid: [0, 50], stitch: [6, 8, 6, 92] },
 	];
 
-	function shapeSvg(shape, [x, y]) {
-		const fill = `fill="${SHAPE_FILL}" stroke="${SHAPE_EDGE}" stroke-width="1.5"`;
-		switch (shape) {
+	function shapeSvg(pattern, [x, y]) {
+		const fill = `fill="${pattern.tint}" stroke="${SHAPE_EDGE}" stroke-width="1.5" transform="translate(${x} ${y}) scale(${SHAPE_SCALE}) translate(${-x} ${-y})"`;
+		switch (pattern.shape) {
 			case 'circle': return `<circle cx="${x}" cy="${y}" r="16" ${fill}/>`;
 			case 'square': return `<rect x="${x - 13}" y="${y - 13}" width="26" height="26" ${fill}/>`;
 			case 'diamond': return `<polygon points="${x},${y - 18} ${x + 18},${y} ${x},${y + 18} ${x - 18},${y}" ${fill}/>`;
@@ -243,7 +246,7 @@
 				const [x1, y1, x2, y2] = s.stitch;
 				out += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${BORDER_STITCH}" stroke-width="2.4" stroke-dasharray="5 4"/>`;
 			} else {
-				out += shapeSvg(PATTERNS[p].shape, s.mid);
+				out += shapeSvg(PATTERNS[p], s.mid);
 			}
 		});
 		out += '<path d="M0,0 L100,100 M100,0 L0,100" stroke="rgba(40,25,10,.10)" stroke-width="1"/>';
@@ -527,7 +530,7 @@
 		return `${s.dir}${s.r}-${s.c}`;
 	}
 
-	/** 按棋盘实际大小设线宽下限和块间缝隙（SVG 单位：每格 100）。 */
+	/** 按棋盘实际大小设提示线宽下限和块间缝隙（SVG 单位：每格 100）。 */
 	function updateLineScale() {
 		const inner = board.querySelector('.board-inner');
 		if (!inner || !game || !inner.clientWidth) return;
@@ -535,13 +538,10 @@
 		const px = inner.clientWidth / (n * 100); // 一个 SVG 单位多少像素
 		const unit = (base, minPx) => Math.max(base, minPx / px).toFixed(2);
 		const vars = {
-			'--seam-under': unit(9, LINE_MIN_PX.under),
-			'--seam-w': unit(4, LINE_MIN_PX.stitch),
-			'--seam-dash': `${unit(8, LINE_MIN_PX.dash)} ${unit(6, LINE_MIN_PX.dashGap)}`,
 			'--hint-under': unit(12, LINE_MIN_PX.hintUnder),
 			'--hint-w': unit(6, LINE_MIN_PX.hint),
 			// 块间留缝露出底板：没对上的接缝是「开着的」，对上的由针脚盖住
-			'--gap': `${Math.max(1.5, px * 100 * 0.05).toFixed(2)}px`,
+			'--gap': `${Math.max(1.5, px * 100 * 0.035).toFixed(2)}px`,
 		};
 		Object.entries(vars).forEach(([k, v]) => inner.style.setProperty(k, v));
 	}
