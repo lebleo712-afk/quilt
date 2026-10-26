@@ -96,12 +96,12 @@
 	}
 
 	// ---------- 存档：读时逐项校验，写时先和磁盘上的合并，避免两个标签页互相覆盖 ----------
-	const EMPTY = { streak: 0, best: 0, last: null, days: {}, dayProps: null, progress: null, sound: true, seenHelp: false };
+	const EMPTY = { streak: 0, best: 0, last: null, days: {}, progress: null, sound: true, seenHelp: false };
 	const isInt = (x, lo = 0) => Number.isInteger(x) && x >= lo;
 
 	function cleanLevel(l) {
 		if (!l || typeof l !== 'object' || !isInt(l.steps) || !isInt(l.min) || ![1, 2, 3].includes(l.stars)) return null;
-		return { steps: l.steps, min: l.min, stars: l.stars, gold: l.gold === true, restarts: isInt(l.restarts) ? l.restarts : 0 };
+		return { steps: l.steps, min: l.min, stars: l.stars, gold: l.gold === true, props: isInt(l.props) ? l.props : 0 };
 	}
 
 	function cleanDay(d) {
@@ -112,11 +112,6 @@
 			if (l) levels[i] = l;
 		}
 		return Object.keys(levels).length ? { levels } : null;
-	}
-
-	function cleanProps(p) {
-		if (!p || !isValidKey(p.date)) return null;
-		return { date: p.date, hint: isInt(p.hint) ? p.hint : 0, undo: isInt(p.undo) ? p.undo : 0 };
 	}
 
 	function cleanStore(raw) {
@@ -134,7 +129,6 @@
 			best: isInt(raw.best) ? raw.best : 0,
 			last: isValidKey(raw.last) && raw.last <= todayKey() ? raw.last : null,
 			days,
-			dayProps: cleanProps(raw.dayProps),
 			progress: p && typeof p === 'object' && isValidKey(p.date) && isInt(p.level) && p.level < LEVELS.length ? p : null,
 			sound: raw.sound !== false,
 			seenHelp: raw.seenHelp === true,
@@ -165,14 +159,7 @@
 		return (b.steps || 0) > (a.steps || 0) ? b : a;
 	}
 
-	function pickProps(a, b) {
-		if (!a) return b;
-		if (!b) return a;
-		if (a.date !== b.date) return a.date > b.date ? a : b;
-		return { date: a.date, hint: Math.max(a.hint, b.hint), undo: Math.max(a.undo, b.undo) };
-	}
-
-	/** 两份存档合并：完成记录只增不删，连缝取日期更晚的那份，道具次数取用得多的。 */
+	/** 两份存档合并：完成记录只增不删，连缝取日期更晚的那份。 */
 	function mergeStores(disk, mine) {
 		const newer = (disk.last || '') > (mine.last || '') ? disk : mine;
 		const streak = disk.last === mine.last ? Math.max(disk.streak, mine.streak) : newer.streak;
@@ -182,7 +169,6 @@
 			last: newer.last,
 			streak,
 			best: Math.max(disk.best, mine.best, streak),
-			dayProps: pickProps(disk.dayProps, mine.dayProps),
 			progress: pickProgress(disk.progress, mine.progress),
 			seenHelp: disk.seenHelp || mine.seenHelp,
 		};
@@ -207,10 +193,6 @@
 		const done = dayLevels(key);
 		for (let i = 0; i < LEVELS.length; i++) if (!done[i]) return i;
 		return null;
-	}
-	function usedProps(key) {
-		const p = store.dayProps;
-		return p && p.date === key ? p : { date: key, hint: 0, undo: 0 };
 	}
 
 	// ---------- 画布块 ----------
@@ -332,7 +314,7 @@
 		const size = fields.puzzle.n * fields.puzzle.n;
 		return {
 			perm: fields.puzzle.start, steps: 0, moves: new Array(size).fill(0), history: [], hinted: [],
-			levelProps: 0, propsUsed: NO_PROPS_USED, restarts: 0, done: false, ...fields,
+			levelProps: 0, propsUsed: NO_PROPS_USED, done: false, ...fields,
 		};
 	}
 
@@ -367,7 +349,6 @@
 					hinted: validTilePair(p.hinted, size) ? p.hinted : [],
 					levelProps: isInt(p.levelProps) ? p.levelProps : 0,
 					propsUsed: p.propsUsed && isInt(p.propsUsed.hint) && isInt(p.propsUsed.undo) ? p.propsUsed : NO_PROPS_USED,
-					restarts: isInt(p.restarts) ? p.restarts : 0,
 				};
 			}
 		}
@@ -826,18 +807,15 @@
 		saveStore({
 			progress: {
 				date: game.key, level: game.level, perm: game.perm, steps: game.steps, moves: game.moves,
-				prev: last, hinted: game.hinted, levelProps: game.levelProps, propsUsed: game.propsUsed, restarts: game.restarts,
+				prev: last, hinted: game.hinted, levelProps: game.levelProps, propsUsed: game.propsUsed,
 			},
 		});
 	}
 
 	// ---------- 道具 ----------
-	/** 本关用过道具就没有金针（重来也不恢复）；当天总数只用来写进分享。 */
+	/** 这一局用过道具就没有金针；重来后从零算，等于第一次玩。 */
 	function spendProp(kind) {
 		game = { ...game, levelProps: game.levelProps + 1, propsUsed: { ...game.propsUsed, [kind]: game.propsUsed[kind] + 1 } };
-		if (game.mode !== 'daily' || game.level < FREE_LEVELS) return;
-		const used = usedProps(game.key);
-		saveStore({ dayProps: { ...used, [kind]: used[kind] + 1 } });
 	}
 
 	$('btn-hint').addEventListener('click', () => {
@@ -855,7 +833,7 @@
 		setHint('把标着 ① ② 的两块布换一下');
 	});
 
-	// 重来：当前关回到开局，步数清零，提示和撤回补满（金针照样没有）。点两下确认，防止误触
+	// 重来：当前关回到开局，等于第一次玩：步数清零、提示和撤回补满、金针重新算、不记重来次数。点两下确认，防止误触
 	let restartArmed = null;
 	function disarmRestart() {
 		clearTimeout(restartArmed);
@@ -881,7 +859,7 @@
 		game = {
 			...game,
 			perm: game.puzzle.start, steps: 0, moves: new Array(size).fill(0), history: [], hinted: [],
-			propsUsed: NO_PROPS_USED, restarts: game.restarts + 1,
+			levelProps: 0, propsUsed: NO_PROPS_USED,
 		};
 		select(null);
 		guide = null;
@@ -896,7 +874,7 @@
 		buzz([8, 40, 8]);
 		if (game.tutorial) startGuide('重新开始了。');
 		else if (game.level < FREE_LEVELS || game.mode === 'practice') setHint('这一关重新开始了，步数从 0 算');
-		else setHint(game.levelProps ? '提示和撤回已补满（本关用过道具，没有金针了）' : '重新开始了，提示和撤回已补满');
+		else setHint('重新开始了，提示和撤回已补满，金针也还能拿');
 	}
 
 	$('btn-undo').addEventListener('click', () => {
@@ -925,7 +903,8 @@
 			steps: game.steps, min: game.puzzle.min,
 			stars: Q.starsFor(game.steps, game.puzzle.min, game.spec.stars),
 			gold: game.steps === game.puzzle.min && game.levelProps === 0,
-			restarts: game.restarts,
+			// 只记最后这一局（重来前的不算）；新手、热身的道具不计
+			props: game.level < FREE_LEVELS ? 0 : game.levelProps,
 		};
 		game = { ...game, done: true, record, hinted: [], winShown: false };
 		select(null);
@@ -1001,10 +980,8 @@
 			const mark = r ? (r.gold ? `✨金针 ${r.steps}步` : `${starText(r.stars)} ${r.steps}步`) : '—';
 			lines.push(`${NUM_MARK[i]} ${i === LEVELS.length - 1 ? '🔥' : ''}${L.label} ${mark}`);
 		});
-		const used = usedProps(key);
-		if (used.hint + used.undo) lines.push(`用了道具 ${used.hint + used.undo} 次`);
-		const restarts = Object.values(done).reduce((k, r) => k + (r.restarts || 0), 0);
-		if (restarts) lines.push(`重来 ${restarts} 次`);
+		const props = Object.values(done).reduce((k, r) => k + (r.props || 0), 0);
+		if (props) lines.push(`用了道具 ${props} 次`);
 		lines.push('你能缝到第几关？', location.origin + location.pathname);
 		return lines.join('\n');
 	}
@@ -1215,7 +1192,7 @@
 	Object.defineProperty(window, '__quilt', {
 		get: () => (game ? {
 			mode: game.mode, key: game.key, level: game.level, steps: game.steps, min: game.puzzle.min, n: game.puzzle.n,
-			perm: game.perm.slice(), done: game.done, hinted: game.hinted.slice(), props: { ...usedProps(game.key || todayKey()) },
+			perm: game.perm.slice(), done: game.done, hinted: game.hinted.slice(), propsUsed: { ...game.propsUsed },
 		} : null),
 	});
 
