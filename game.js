@@ -20,6 +20,8 @@
 	const CELEBRATE_MS = 2400;
 	const CABINET_MAX = 30;
 	const SEAM_INSET = 16;
+	// 格子小（5×5、6×6）时针脚和提示线不能跟着缩没了：屏幕像素下限
+	const LINE_MIN_PX = { under: 6, stitch: 3, dash: 6, dashGap: 5, hintUnder: 9, hint: 4.5 };
 	const DEBUG_HOSTS = ['localhost', '127.0.0.1'];
 	const NUM_MARK = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
 	const LEVEL_WORD = `${'零一二三四五六七'[LEVELS.length]}关`;
@@ -525,10 +527,48 @@
 		return `${s.dir}${s.r}-${s.c}`;
 	}
 
+	/** 按棋盘实际大小设线宽下限和块间缝隙（SVG 单位：每格 100）。 */
+	function updateLineScale() {
+		const inner = board.querySelector('.board-inner');
+		if (!inner || !game || !inner.clientWidth) return;
+		const n = game.puzzle.n;
+		const px = inner.clientWidth / (n * 100); // 一个 SVG 单位多少像素
+		const unit = (base, minPx) => Math.max(base, minPx / px).toFixed(2);
+		const vars = {
+			'--seam-under': unit(9, LINE_MIN_PX.under),
+			'--seam-w': unit(4, LINE_MIN_PX.stitch),
+			'--seam-dash': `${unit(8, LINE_MIN_PX.dash)} ${unit(6, LINE_MIN_PX.dashGap)}`,
+			'--hint-under': unit(12, LINE_MIN_PX.hintUnder),
+			'--hint-w': unit(6, LINE_MIN_PX.hint),
+			// 块间留缝露出底板：没对上的接缝是「开着的」，对上的由针脚盖住
+			'--gap': `${Math.max(1.5, px * 100 * 0.05).toFixed(2)}px`,
+		};
+		Object.entries(vars).forEach(([k, v]) => inner.style.setProperty(k, v));
+	}
+
+	/** 四边里该缝的接缝全都缝上了的布（外沿那边不算）。 */
+	function placedTiles(list, n) {
+		const sewn = new Array(n * n).fill(0);
+		list.forEach(s => {
+			sewn[s.r * n + s.c] += 1;
+			sewn[s.dir === 'h' ? s.r * n + s.c + 1 : (s.r + 1) * n + s.c] += 1;
+		});
+		const set = new Set();
+		game.perm.forEach((tile, pos) => {
+			const r = Math.floor(pos / n), c = pos % n;
+			const need = (r > 0) + (r < n - 1) + (c > 0) + (c < n - 1);
+			if (sewn[pos] === need) set.add(tile);
+		});
+		return set;
+	}
+
 	/** 画已对上的接缝；新缝上的那几道带缝线动画。返回这次新缝上的数量。 */
 	function renderSeams(before, animate) {
 		const n = game.puzzle.n;
 		const list = Q.matchedSeams(game.puzzle.tiles, game.perm, n);
+		updateLineScale();
+		const placed = placedTiles(list, n);
+		tileEls.forEach((el, t) => el.classList.toggle('placed', placed.has(t)));
 		const svg = board.querySelector('.seams');
 		const fresh = [];
 		// 每道缝：白色衬底 + 深色针脚，任何颜色的布上都看得清；刚缝上的再弹一圈金光
@@ -583,14 +623,19 @@
 		return Math.max(0, LEVEL_LIMIT[kind] - game.propsUsed[kind]);
 	}
 
+	/** 走过步，或者用过提示/撤回（重来能补满），就能重来。 */
+	function canRestart() {
+		return game.steps > 0 || game.propsUsed.hint + game.propsUsed.undo > 0;
+	}
+
 	function renderProps() {
 		const hl = propLeft('hint'), ul = propLeft('undo');
 		$('hint-left').textContent = hl === Infinity ? '' : `×${hl}`;
 		$('undo-left').textContent = ul === Infinity ? '' : `×${ul}`;
 		$('btn-hint').disabled = game.done || hl <= 0;
 		$('btn-undo').disabled = game.done || ul <= 0 || !game.history.length;
-		$('btn-restart').disabled = game.done || game.steps === 0;
-		if (restartArmed && game.steps === 0) disarmRestart();
+		$('btn-restart').disabled = game.done || !canRestart();
+		if (restartArmed && !canRestart()) disarmRestart();
 		$('props').hidden = game.done;
 	}
 
@@ -817,7 +862,7 @@
 		$('btn-restart').classList.remove('armed');
 	}
 	$('btn-restart').addEventListener('click', () => {
-		if (!game || game.done || game.steps === 0) return;
+		if (!game || game.done || !canRestart()) return;
 		if (!restartArmed) {
 			$('btn-restart').textContent = '确认重来';
 			$('btn-restart').classList.add('armed');
@@ -848,7 +893,8 @@
 		sound.swap();
 		buzz([8, 40, 8]);
 		if (game.tutorial) startGuide('重新开始了。');
-		else setHint(game.level < FREE_LEVELS || game.mode === 'practice' ? '这一关重新开始了，步数从 0 算' : '重新开始了，提示和撤回已补满');
+		else if (game.level < FREE_LEVELS || game.mode === 'practice') setHint('这一关重新开始了，步数从 0 算');
+		else setHint(game.levelProps ? '提示和撤回已补满（本关用过道具，没有金针了）' : '重新开始了，提示和撤回已补满');
 	}
 
 	$('btn-undo').addEventListener('click', () => {
@@ -1152,6 +1198,9 @@
 		startDaily();
 	}
 	document.addEventListener('visibilitychange', () => { if (!document.hidden) checkNewDay(); });
+	// 屏幕转向、窗口缩放后棋盘变大变小，线宽下限跟着重算
+	if (window.ResizeObserver) new ResizeObserver(updateLineScale).observe(board);
+	else window.addEventListener('resize', updateLineScale);
 	setInterval(checkNewDay, 60000);
 
 	// 测试用：暴露只读状态，方便自动化等待
