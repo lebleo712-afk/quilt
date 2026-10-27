@@ -69,6 +69,12 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 .steps-num { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
 .steps-num.bump { animation: bump 260ms ease; }
 @keyframes bump { 40% { transform: scale(1.15); } }
+/* 炼狱快到步数上限：步数变红 */
+.steps-num.warn { color: var(--accent); }
+/* 炼狱走满步数：被面一抖、褪色，表示这床缝乱了 */
+.board.failed { animation: fail-shake 480ms ease; }
+.board.failed .board-inner { filter: saturate(.35) brightness(.92); transition: filter 300ms ease; }
+@keyframes fail-shake { 15%, 55% { transform: translateX(-8px); } 35%, 75% { transform: translateX(8px); } }
 .steps-label { font-size: 16px; color: var(--muted); }
 .goal { margin: 0; font-size: 15px; color: var(--muted); text-align: right; }
 .goal strong { color: var(--ink); }
@@ -294,6 +300,10 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 .side { flex: 1; display: flex; flex-direction: column; gap: 10px; }
 
 .levels { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+.levels.with-bonus { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+/* 七格时格子窄：角标不折行、字号小一档，「★★★」也放得下 */
+.levels.with-bonus .level-chip { padding-left: 0; padding-right: 0; white-space: nowrap; }
+.levels.with-bonus .level-chip small { font-size: 10px; letter-spacing: -0.5px; }
 .level-chip {
 	display: flex; flex-direction: column; align-items: center; justify-content: center;
 	min-height: 48px;
@@ -313,6 +323,14 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 .level-chip.hardest small { color: #E4C88A; }
 .level-chip.hardest:disabled { opacity: .55; }
 .level-chip.gold small { color: var(--gold); font-weight: 800; }
+/* 加练关「炼狱」：比地狱更深的砖红底，一眼看出是额外的一关 */
+.level-chip.bonus { background: #6E2A1C; color: #F4ECDF; border-color: #6E2A1C; font-size: 13px; }
+.level-chip.bonus small { color: #E4C88A; }
+.level-chip.bonus.current { box-shadow: 0 0 0 2px var(--accent); }
+/* 还没缝的加练是选做：浅底深红字，不比没缝完的每日关更抢眼；缝完才变深红底 */
+.level-chip.bonus.optional { background: var(--paper); color: #6E2A1C; border: 1px dashed #6E2A1C; }
+.level-chip.bonus.optional small { color: #8A4A3A; }
+.level-chip.bonus.gold small { color: var(--gold); }
 .level-chip.hardest.current { box-shadow: 0 0 0 2px var(--accent); }
 
 .secondary {

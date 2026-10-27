@@ -25,6 +25,13 @@
 	const DEBUG_HOSTS = ['localhost', '127.0.0.1'];
 	const NUM_MARK = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
 	const LEVEL_WORD = `${'零一二三四五六七'[LEVELS.length]}关`;
+	// 加练关「炼狱」：排在每日关卡后面（下标 = 关卡数），缝完地狱关才解锁，不计入每日六关、🏆 和连缝
+	const BONUS_LEVEL = LEVELS.length;
+	const HELL_LEVEL = LEVELS.length - 1;
+	const specOf = level => (level === BONUS_LEVEL ? Q.BONUS : LEVELS[level]);
+	const BONUS_STEP_FACTOR = 2; // 炼狱限步：最少步数的两倍，超过就算缝乱了，整床从头再来
+	const FAIL_MS = 1400; // 缝乱后停一下，让玩家看清再重来
+	const WARN_STEPS = 5; // 只剩这么多步时提醒
 
 	/**
 	 * 花纹：颜色 + 形状，分不清颜色也能靠形状对。
@@ -91,7 +98,7 @@
 	const puzzleCache = new Map();
 	function levelPuzzle(key, level) {
 		const id = `${key}#${level}`;
-		if (!puzzleCache.has(id)) puzzleCache.set(id, Q.makePuzzle(`quilt-${key}-L${level}`, LEVELS[level]));
+		if (!puzzleCache.has(id)) puzzleCache.set(id, Q.makePuzzle(`quilt-${key}-L${level}`, specOf(level)));
 		return puzzleCache.get(id);
 	}
 
@@ -107,7 +114,7 @@
 	function cleanDay(d) {
 		if (!d || typeof d !== 'object' || !d.levels || typeof d.levels !== 'object') return null;
 		const levels = {};
-		for (let i = 0; i < LEVELS.length; i++) {
+		for (let i = 0; i <= BONUS_LEVEL; i++) {
 			const l = cleanLevel(d.levels[i]);
 			if (l) levels[i] = l;
 		}
@@ -129,7 +136,7 @@
 			best: isInt(raw.best) ? raw.best : 0,
 			last: isValidKey(raw.last) && raw.last <= todayKey() ? raw.last : null,
 			days,
-			progress: p && typeof p === 'object' && isValidKey(p.date) && isInt(p.level) && p.level < LEVELS.length ? p : null,
+			progress: p && typeof p === 'object' && isValidKey(p.date) && isInt(p.level) && p.level <= BONUS_LEVEL ? p : null,
 			sound: raw.sound !== false,
 			// 旧存档没有 music：跟着原来的声音开关走，关过声音的人更新后不会突然放音乐
 			music: 'music' in raw ? raw.music !== false : raw.sound !== false,
@@ -176,6 +183,8 @@
 		if (!b) return a;
 		if (a.date !== b.date) return a.date > b.date ? a : b;
 		if (a.level !== b.level) return a.level > b.level ? a : b;
+		// 同一关：两份都带保存时间就取新的（重来、炼狱缝乱后步数会变少，不能按步数多的算）
+		if (isInt(a.savedAt) && isInt(b.savedAt)) return b.savedAt > a.savedAt ? b : a;
 		return (b.steps || 0) > (a.steps || 0) ? b : a;
 	}
 
@@ -213,6 +222,23 @@
 	function dayLevels(key) {
 		return (store.days[key] && store.days[key].levels) || {};
 	}
+	/** 当天地狱关缝好了，加练关就开了。 */
+	function bonusOpen(key) {
+		return !!dayLevels(key)[HELL_LEVEL];
+	}
+	/** 加练关开了还没缝。 */
+	function bonusPending(key) {
+		return bonusOpen(key) && !dayLevels(key)[BONUS_LEVEL];
+	}
+	/** 每日六关都缝完了（不看加练关）。 */
+	function mainDone(key) {
+		const done = dayLevels(key);
+		return LEVELS.every((L, i) => !!done[i]);
+	}
+	function levelTitle(level, label) {
+		return level === BONUS_LEVEL ? `加练 · ${label}` : `第 ${level + 1} 关 · ${label}`;
+	}
+
 	function nextLevel(key) {
 		const done = dayLevels(key);
 		for (let i = 0; i < LEVELS.length; i++) if (!done[i]) return i;
@@ -396,7 +422,10 @@
 	function startDaily() {
 		const key = todayKey();
 		const next = nextLevel(key);
-		playLevel(key, next === null ? LEVELS.length - 1 : next);
+		const p = store.progress;
+		// 加练关缝到一半关掉了页面：回来接着缝加练关
+		const bonusInProgress = next === null && bonusPending(key) && p && p.date === key && p.level === BONUS_LEVEL;
+		playLevel(key, next !== null ? next : bonusInProgress ? BONUS_LEVEL : HELL_LEVEL);
 	}
 
 	function validTilePair(pair, size) {
@@ -409,7 +438,7 @@
 		const num = dayNumber(key);
 		const size = puzzle.n * puzzle.n;
 		const record = dayLevels(key)[level];
-		let g = newGame({ mode: 'daily', key, num, level, name: nameForDay(num), spec: LEVELS[level], puzzle });
+		let g = newGame({ mode: 'daily', key, num, level, name: nameForDay(num), spec: specOf(level), puzzle });
 		if (record && replay) {
 			g = { ...g, replay: true, best: record };
 		} else if (record) {
@@ -433,7 +462,9 @@
 		show(g);
 		if (game.done) {
 			board.classList.add('done');
-			setHint(nextLevel(key) === null ? `今天${LEVEL_WORD}全缝完了，明天再来` : '这一关缝好了');
+			setHint(nextLevel(key) !== null ? '这一关缝好了'
+				: bonusPending(key) ? `今天${LEVEL_WORD}全缝完了，还能加练「${Q.BONUS.label}」`
+					: `今天${LEVEL_WORD}全缝完了，明天再来`);
 			return;
 		}
 		if (game.replay) {
@@ -486,7 +517,7 @@
 		guide = null;
 		const n = g.puzzle.n;
 		window.scrollTo(0, 0);
-		board.classList.remove('done');
+		board.classList.remove('done', 'failed');
 		$('banner').classList.remove('show');
 		board.innerHTML = '';
 		const inner = document.createElement('div');
@@ -523,7 +554,8 @@
 		renderBottom();
 		setHint(g.level === 0 ? '新手关：三步就能缝好'
 			: g.level === 1 ? '热身：这次自己来，先找四个角'
-				: `第 ${g.level + 1} 关 · ${g.spec.label}：${g.puzzle.n * g.puzzle.n} 块布`);
+				: g.level === BONUS_LEVEL ? `加练 · ${g.spec.label}：只有三种花纹、几乎全打乱，不计入每日${LEVEL_WORD}`
+					: `第 ${g.level + 1} 关 · ${g.spec.label}：${g.puzzle.n * g.puzzle.n} 块布`);
 	}
 
 	function renderHeader() {
@@ -543,12 +575,17 @@
 		const key = game.mode === 'daily' ? game.key : todayKey();
 		const done = dayLevels(key);
 		const next = nextLevel(key);
-		nav.innerHTML = LEVELS.map((L, i) => {
+		const specs = bonusOpen(key) ? [...LEVELS, Q.BONUS] : LEVELS;
+		nav.classList.toggle('with-bonus', specs.length > LEVELS.length);
+		nav.innerHTML = specs.map((L, i) => {
 			const rec = done[i];
-			const open = rec || i === next;
-			const cls = ['level-chip', rec ? 'cleared' : '', rec && rec.gold ? 'gold' : '', game.mode === 'daily' && game.level === i ? 'current' : '', i === LEVELS.length - 1 ? 'hardest' : ''].join(' ');
-			const sub = rec ? levelBadge(rec) : (open || i === LEVELS.length - 1 ? L.label : '🔒');
-			return `<button class="${cls}" data-level="${i}" ${open ? '' : 'disabled'} aria-label="第 ${i + 1} 关 ${L.label}">${i + 1}<small>${sub}</small></button>`;
+			const isBonus = i === BONUS_LEVEL;
+			const open = rec || i === next || isBonus;
+			const cls = ['level-chip', rec ? 'cleared' : '', rec && rec.gold ? 'gold' : '', game.mode === 'daily' && game.level === i ? 'current' : '', i === HELL_LEVEL ? 'hardest' : '', isBonus ? 'bonus' : '', isBonus && !rec ? 'optional' : ''].join(' ');
+			const sub = rec ? levelBadge(rec) : isBonus ? '选做' : (open || i === HELL_LEVEL ? L.label : '🔒');
+			const head = isBonus ? '加练' : i + 1;
+			const aria = isBonus ? `加练关 ${L.label}` : `第 ${i + 1} 关 ${L.label}`;
+			return `<button class="${cls}" data-level="${i}" ${open ? '' : 'disabled'} aria-label="${aria}">${head}<small>${sub}</small></button>`;
 		}).join('');
 	}
 
@@ -670,9 +707,17 @@
 		});
 	}
 
+	/** 这一关的步数上限：只有今日的炼狱有，其余关卡不会输。 */
+	function stepLimit(g = game) {
+		return g.mode === 'daily' && g.level === BONUS_LEVEL ? g.puzzle.min * BONUS_STEP_FACTOR : null;
+	}
+
 	function renderStats(bump) {
 		const el = $('steps');
 		el.textContent = String(game.steps);
+		const limit = game.done ? null : stepLimit(); // 缝好了就不再显示上限
+		$('steps-label').textContent = limit ? `/ ${limit} 步` : '步';
+		el.classList.toggle('warn', !!limit && limit - game.steps <= WARN_STEPS);
 		if (bump) {
 			el.classList.remove('bump');
 			void el.offsetWidth;
@@ -727,6 +772,7 @@
 		const isDaily = game.mode === 'daily';
 		$('btn-result').hidden = !game.done;
 		const stale = isDaily && game.key !== today;
+		// 加练关的入口是关卡条上的「加练」和地狱结算的主按钮，底栏不再放，免得小屏挤
 		$('btn-next').hidden = !(isDaily && game.done && (stale || next !== null));
 		$('btn-next').textContent = stale ? '去缝今天的' : (next !== null ? `下一关：${LEVELS[next].label}` : '');
 		$('btn-quit-replay').hidden = !(game.replay && !game.done);
@@ -776,7 +822,7 @@
 	}
 
 	board.addEventListener('pointerdown', e => {
-		if (!e.isPrimary || !game || game.done) return;
+		if (!e.isPrimary || !game || game.done || game.failing) return;
 		e.preventDefault();
 		const t = tileAt(e.clientX, e.clientY);
 		drag = t === null ? null : { id: e.pointerId, tile: t, over: null };
@@ -797,7 +843,7 @@
 		const from = drag.tile;
 		setDropTarget(null);
 		drag = null;
-		if (!game || game.done) return;
+		if (!game || game.done || game.failing) return;
 		const upTile = tileAt(e.clientX, e.clientY);
 		if (upTile === null) {
 			if (selected === from) select(null);
@@ -819,7 +865,7 @@
 	board.addEventListener('keydown', e => {
 		if (e.key !== 'Enter' && e.key !== ' ') return;
 		const el = e.target.closest('.tile');
-		if (!el || !game || game.done) return;
+		if (!el || !game || game.done || game.failing) return;
 		e.preventDefault();
 		tapTile(Number(el.dataset.t));
 	});
@@ -884,21 +930,27 @@
 			finish();
 			return;
 		}
+		const limit = stepLimit();
+		if (limit && game.steps >= limit) {
+			failLevel(limit);
+			return;
+		}
 		saveProgress();
-		if (game.tutorial) startGuide(fresh > 0 ? `看，深色针脚就是缝上了（${fresh} 道）！` : '');
+		if (limit && limit - game.steps <= WARN_STEPS) setHint(`只剩 ${limit - game.steps} 步了，超过 ${limit} 步就得从头缝`);
+		else if (game.tutorial) startGuide(fresh > 0 ? `看，深色针脚就是缝上了（${fresh} 道）！` : '');
 		else if (wasGuided) setHint(fresh > 0 ? `看，对上的接缝自动缝上了 ${fresh} 道线` : '换好了，接着拼吧');
 		else if (game.steps - game.puzzle.min > game.spec.stars[0]) setHint('多试几步也没关系，慢慢来');
 		else setHint(cornersDone() ? TIPS[game.steps % TIPS.length] : TIP_CORNER);
 	}
 
-	function saveProgress() {
+	function saveProgress(g = game) {
 		// 再挑战不存半路进度：不占掉正在缝的下一关的进度
-		if (game.mode !== 'daily' || game.done || game.replay) return;
-		const last = game.history[game.history.length - 1] || null;
+		if (g.mode !== 'daily' || g.done || g.replay) return;
+		const last = g.history[g.history.length - 1] || null;
 		saveStore({
 			progress: {
-				date: game.key, level: game.level, perm: game.perm, steps: game.steps, moves: game.moves,
-				prev: last, hinted: game.hinted, levelProps: game.levelProps, propsUsed: game.propsUsed,
+				date: g.key, level: g.level, perm: g.perm, steps: g.steps, moves: g.moves,
+				prev: last, hinted: g.hinted, levelProps: g.levelProps, propsUsed: g.propsUsed, savedAt: Date.now(),
 			},
 		});
 	}
@@ -910,7 +962,7 @@
 	}
 
 	$('btn-hint').addEventListener('click', () => {
-		if (!game || game.done || propLeft('hint') <= 0) return;
+		if (!game || game.done || game.failing || propLeft('hint') <= 0) return;
 		const pair = Q.hintSwap(game.puzzle.tiles, game.perm, game.puzzle.n);
 		if (!pair) return;
 		select(null);
@@ -933,7 +985,7 @@
 		$('btn-restart').classList.remove('armed');
 	}
 	$('btn-restart').addEventListener('click', () => {
-		if (!game || game.done || !canRestart()) return;
+		if (!game || game.done || game.failing || !canRestart()) return;
 		if (!restartArmed) {
 			$('btn-restart').textContent = '确认重来';
 			$('btn-restart').classList.add('armed');
@@ -943,6 +995,24 @@
 		disarmRestart();
 		restartLevel();
 	});
+
+	/** 炼狱超过步数上限：这床缝乱了，停一下让玩家看清，再整床回到开局（等于点了重来）。 */
+	function failLevel(limit) {
+		game = { ...game, failing: true };
+		// 先把「从头再来」的进度存下：停顿中刷新或别的页面读到的都是开局，不会回到上限前一步
+		const size = game.puzzle.n * game.puzzle.n;
+		saveProgress({ ...game, perm: game.puzzle.start, steps: 0, moves: new Array(size).fill(0), history: [], hinted: [], levelProps: 0, propsUsed: NO_PROPS_USED });
+		select(null);
+		board.classList.add('failed');
+		buzz([30, 60, 30]);
+		setHint(`走满 ${limit} 步还没缝好，这床缝乱了……`);
+		later(() => {
+			board.classList.remove('failed');
+			game = { ...game, failing: false };
+			restartLevel();
+			setHint(`从头再来：${limit} 步内缝好。提示和撤回已补满`);
+		}, FAIL_MS);
+	}
 
 	function restartLevel() {
 		const size = game.puzzle.n * game.puzzle.n;
@@ -969,7 +1039,7 @@
 	}
 
 	$('btn-undo').addEventListener('click', () => {
-		if (!game || game.done || !game.history.length || propLeft('undo') <= 0) return;
+		if (!game || game.done || game.failing || !game.history.length || propLeft('undo') <= 0) return;
 		const before = game.seamSet;
 		const last = game.history[game.history.length - 1];
 		const moves = game.moves.slice();
@@ -1022,13 +1092,14 @@
 		}
 		renderLevels();
 		renderBottom();
-		setHint(game.mode === 'daily' ? `第 ${game.level + 1} 关缝好了！` : '练习这床缝好了');
+		setHint(game.mode !== 'daily' ? '练习这床缝好了'
+			: game.level === BONUS_LEVEL ? `${Q.BONUS.label}缝好了！今天全部缝完` : `第 ${game.level + 1} 关缝好了！`);
 		celebrate(record);
 		later(showWinWhenFree, CELEBRATE_MS);
 	}
 
 	function celebrate(record) {
-		$('banner-name').textContent = game.mode === 'daily' ? `第 ${game.level + 1} 关 · ${game.spec.label}` : game.spec.label;
+		$('banner-name').textContent = game.mode === 'daily' ? levelTitle(game.level, game.spec.label) : game.spec.label;
 		$('banner-stars').innerHTML = '';
 		$('banner').classList.add('show');
 		const marks = record.gold ? ['金针'] : Array(record.stars).fill('★');
@@ -1059,8 +1130,8 @@
 	/** 🏆 要地狱关三星才给；各关都缝完但地狱没三星，只算全通。 */
 	function dayTitle(key) {
 		const done = dayLevels(key);
-		if (Object.keys(done).length < LEVELS.length) return '';
-		return done[LEVELS.length - 1].stars === 3 ? `🏆 ${LEVEL_WORD}全通 · 地狱三星` : `🧵 ${LEVEL_WORD}全通`;
+		if (!mainDone(key)) return '';
+		return done[HELL_LEVEL].stars === 3 ? `🏆 ${LEVEL_WORD}全通 · 地狱三星` : `🧵 ${LEVEL_WORD}全通`;
 	}
 
 	/** 分享今天缝到第几关、每关几星几步。不带任何布块位置，不剧透。 */
@@ -1072,8 +1143,11 @@
 		LEVELS.forEach((L, i) => {
 			const r = done[i];
 			const mark = r ? (r.gold ? `✨金针 ${r.steps}步` : `${starText(r.stars)} ${r.steps}步`) : '—';
-			lines.push(`${NUM_MARK[i]} ${i === LEVELS.length - 1 ? '🔥' : ''}${L.label} ${mark}`);
+			lines.push(`${NUM_MARK[i]} ${i === HELL_LEVEL ? '🔥' : ''}${L.label} ${mark}`);
 		});
+		// 加练关缝过才多一行，没缝不提，免得没解锁的人觉得少了什么
+		const b = done[BONUS_LEVEL];
+		if (b) lines.push(`➕ 🔥🔥${Q.BONUS.label} ${b.gold ? `✨金针 ${b.steps}步` : `${starText(b.stars)} ${b.steps}步`}`);
 		const props = Object.values(done).reduce((k, r) => k + (r.props || 0), 0);
 		if (props) lines.push(`用了道具 ${props} 次`);
 		lines.push('你能缝到第几关？', location.origin + location.pathname);
@@ -1088,8 +1162,10 @@
 		const isDaily = g.mode === 'daily';
 		const stale = isDaily && g.key !== todayKey();
 		const next = isDaily ? nextLevel(g.key) : null;
-		$('win-kicker').textContent = isDaily ? `第 ${g.level + 1} 关 · ${g.spec.label} 缝好了` : `练习 · ${g.spec.label} 缝好了`;
-		$('win-name').textContent = isDaily && next === null ? dayTitle(g.key) : g.name;
+		$('win-kicker').textContent = isDaily ? `${levelTitle(g.level, g.spec.label)} 缝好了` : `练习 · ${g.spec.label} 缝好了`;
+		const bonusDone = isDaily && g.level === BONUS_LEVEL;
+		// 缝完炼狱有自己的标题；🏆/全通那行挪到下面的小字里
+		$('win-name').textContent = bonusDone ? `🔥🔥 ${Q.BONUS.label}也缝好了` : isDaily && next === null ? dayTitle(g.key) : g.name;
 		$('win-stars').textContent = starText(r.stars);
 		$('win-gold').textContent = r.gold ? '✨ 金针：一步不多，一针不差' : '';
 		const line = over <= 0
@@ -1098,16 +1174,22 @@
 		$('win-line').textContent = line + replayNote(g);
 		$('btn-win-replay').hidden = !canReplay();
 		const nextBtn = $('btn-win-next');
-		nextBtn.hidden = isDaily && next === null && !stale;
+		// 每日六关缝完、加练关还没缝：主按钮换成去加练
+		const toBonus = isDaily && !stale && next === null && g.level !== BONUS_LEVEL && bonusPending(g.key);
+		nextBtn.hidden = isDaily && next === null && !stale && !toBonus;
 		nextBtn.textContent = !isDaily ? '再练一床'
 			: stale ? '去缝今天的'
-				: `下一关：${LEVELS[next]?.label || ''}${next === LEVELS.length - 1 ? '（最难）' : ''}`;
+				: toBonus ? `加练：${Q.BONUS.label}（更难）`
+					: `下一关：${LEVELS[next]?.label || ''}${next === HELL_LEVEL ? '（最难）' : ''}`;
 		$('share-preview').hidden = !isDaily;
 		$('btn-share').hidden = !isDaily;
 		if (isDaily) $('share-preview').textContent = shareText(g.key);
 		$('share-toast').textContent = '';
 		const trophyTip = isDaily && next === null && !dayTitle(g.key).startsWith('🏆') ? '地狱关拿到三星才有 🏆。' : '';
-		$('win-next').textContent = isDaily && next === null ? `${trophyTip}明天的${LEVEL_WORD} ${untilMidnight()} 后上新` : '';
+		const titleTip = bonusDone && dayTitle(g.key) ? `${dayTitle(g.key)}。` : '';
+		$('win-next').textContent = isDaily && next === null ? `${titleTip}${trophyTip}明天的${LEVEL_WORD} ${untilMidnight()} 后上新` : '';
+		// 没有下一关可去：分享升为主按钮
+		$('btn-share').className = nextBtn.hidden ? 'primary' : 'secondary';
 		$('btn-win-practice').hidden = !isDaily || !dayLevels(g.key)[COUNTS_AS_DAY];
 		game = { ...game, winShown: true };
 		$('dlg-win').showModal();
@@ -1177,8 +1259,9 @@
 				const done = dayLevels(k);
 				const top = Math.max(...Object.keys(done).map(Number));
 				const pz = levelPuzzle(k, top);
-				const all = Object.keys(done).length === LEVELS.length;
-				const title = all ? (dayTitle(k).startsWith('🏆') ? '🏆 地狱三星' : `${LEVEL_WORD}全通`) : `第 ${top + 1} 关`;
+				const all = mainDone(k);
+				const title = (all ? (dayTitle(k).startsWith('🏆') ? '🏆 地狱三星' : `${LEVEL_WORD}全通`) : `第 ${top + 1} 关`)
+					+ (done[BONUS_LEVEL] ? ` · ${Q.BONUS.label}` : '');
 				return `<div class="cab-item">${tilesSvg(pz.tiles, pz.n)}<strong>${escapeHtml(nameForDay(dayNumber(k)))}</strong><span>#${dayNumber(k)} · ${title}</span></div>`;
 			}).join('') + (keys.length > CABINET_MAX ? `<p class="cab-empty">更早的 ${keys.length - CABINET_MAX} 床收在柜子深处</p>` : '')
 			: '<p class="cab-empty">还没有缝好的被子，先缝今天这床吧</p>';
@@ -1214,6 +1297,7 @@
 		}
 		const next = nextLevel(game.key);
 		if (next !== null) playLevel(game.key, next);
+		else if (bonusPending(game.key)) playLevel(game.key, BONUS_LEVEL);
 	}
 	document.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', () => btn.closest('dialog').close()));
 	$('btn-help').addEventListener('click', openHelp);

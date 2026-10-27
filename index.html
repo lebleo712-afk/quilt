@@ -28,7 +28,7 @@
 	<section class="stats">
 		<div class="steps-block">
 			<span class="steps-num" id="steps">0</span>
-			<span class="steps-label">步</span>
+			<span class="steps-label" id="steps-label">步</span>
 		</div>
 		<p class="goal" id="goal"></p>
 	</section>
@@ -81,7 +81,7 @@
 		<li>每天六关，一关比一关难，所有人都是同一套。第 1 关新手三步就好，缝完第 3 关就算今天缝过。</li>
 		<li>不计时、不会输。步数越少星越多，正好最少步数、没用道具得「金针」。缝好的关没拿金针，可以「再挑战」，成绩只留最好的。</li>
 		<li>第 3 关起，提示和撤回每关各一次。撤回不退步数；拼乱了点「重来」，就和第一次玩一样：提示和撤回补满，金针也还能拿。</li>
-		<li>第 6 关「地狱」拿到三星，才有今天的 🏆。</li>
+		<li>第 6 关「地狱」拿到三星，才有今天的 🏆。缝完地狱关，还能加练一关更难的「炼狱」，不计入每日六关。炼狱限步：超过最少步数的两倍就算缝乱了，要从头再来。</li>
 		<li>缝线对上不一定就放对了，要四边都对。</li>
 	</ul>
 	<button class="primary" data-close>开始缝</button>
@@ -99,8 +99,8 @@
 		<button class="text-btn" id="btn-win-practice">练习</button>
 		<button class="text-btn" data-close>看看被子</button>
 	</div>
-	<pre class="share-preview" id="share-preview"></pre>
 	<button class="secondary" id="btn-share">分享今天的成绩</button>
+	<pre class="share-preview" id="share-preview"></pre>
 	<p class="toast" id="share-toast" role="status"></p>
 	<p class="next" id="win-next"></p>
 </dialog>

@@ -332,6 +332,14 @@
 		{ label: '很难', n: 5, colors: 3, guesses: [2, 3], balance: [0.28, 0.4], min: [12, 15], moved: [17, 21], stars: [4, 8] },
 		{ label: '地狱', n: 6, colors: 4, guesses: [3, 4], balance: [0.18, 0.32], min: [19, 22], moved: [24, 27], stars: [4, 10] },
 	];
+	/**
+	 * 加练关「炼狱」：缝完地狱关才解锁，不计入每日六关。要非常难，但不加大棋盘（手机上 6×6 已是极限）：
+	 * - 只有 3 种花纹：同一条边能对上的布多得多，「只能放这里」的线索少；
+	 * - 推理要试 10~13 次（地狱 3~4 次），只取 3 色题里最难的一成多；再往上（11 次起）出题会慢到手机卡几秒，不取；
+	 * - 整床几乎全打乱（33~36 块离位），开局没有现成放对的布可当已知。
+	 * 试得越多走得越多，星级余量相应放宽到 10/20。
+	 */
+	const BONUS = { label: '炼狱', n: 6, colors: 3, guesses: [10, 13], balance: [0.25, 0.42], min: [29, 33], moved: [33, 36], stars: [10, 20] };
 
 	/**
 	 * 星级：stars = [三星最多多走几步, 两星最多多走几步]，缝好就一星。正好最少步数另给「金针」。
@@ -344,7 +352,7 @@
 	}
 
 	const api = {
-		BORDER, MAX_COLORS, LEVELS, makeRng, hashString, solvedTiles, allDistinct, countSolutions, guessCount, fullySewn, knownAtStart, balanced, minSwaps,
+		BORDER, MAX_COLORS, LEVELS, BONUS, makeRng, hashString, solvedTiles, allDistinct, countSolutions, guessCount, fullySewn, knownAtStart, balanced, minSwaps,
 		makePuzzle, matchedSeams, seamTotal, isSolved, isPermutation, applySwap, hintSwap, starsFor,
 	};
 	if (typeof module !== 'undefined' && module.exports) module.exports = api;
