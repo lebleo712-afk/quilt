@@ -50,11 +50,11 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .title-block h1 { margin: 0; font-family: var(--font-title); font-size: 28px; letter-spacing: .1em; font-weight: 700; line-height: 1.15; }
 .subtitle { margin: 2px 0 0; color: var(--muted); font-size: 15px; word-break: keep-all; }
-.top-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.top-actions { display: flex; gap: 5px; flex-shrink: 0; }
 
 .pill-btn {
 	min-width: 48px; height: 44px;
-	padding: 0 10px;
+	padding: 0 8px; /* 四个按钮时，375 宽的手机上副标题还能一行放下 */
 	border-radius: 22px;
 	border: 1px solid var(--line);
 	background: var(--paper);
@@ -217,6 +217,7 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 	min-height: 44px;
 }
 .text-btn:active { opacity: .6; }
+.bottom-actions .text-btn { white-space: nowrap; } /* 小屏上「下一关：进阶」不逐字折行 */
 
 .primary {
 	width: 100%;
@@ -323,6 +324,8 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 	font-size: 16px; font-weight: 600;
 }
 .secondary:active { background: #F3EADC; }
+#btn-win-replay { margin-top: 8px; color: var(--gold); border-color: var(--gold); }
+.replay-btn { max-width: 220px; color: var(--gold); border-color: var(--gold); font-weight: 600; }
 
 /* 横屏手机：左边棋盘，右边信息和按钮 */
 @media (orientation: landscape) and (max-height: 520px) {
@@ -365,12 +368,15 @@ button:focus-visible, .tile:focus-visible { outline: 3px solid var(--accent); ou
 	.text-btn { min-height: 38px; padding: 4px; }
 	.hint { font-size: 14px; }
 	.board { width: min(100%, 440px, max(220px, calc(100dvh - 300px))); }
+	/* 缝好的关多了一行「再挑战金针」：「这一关缝好了」不用再说，省出这一行 */
+	.side.replay-on .hint { display: none; }
 }
 
 @media (max-width: 340px) {
 	.app { gap: 8px; }
 	.title-block h1 { font-size: 24px; }
-	.pill-btn { padding: 0 8px; font-size: 14px; }
+	.top-actions { gap: 4px; }
+	.pill-btn { min-width: 44px; padding: 0 7px; font-size: 14px; }
 	.steps-num { font-size: 28px; }
 }
 

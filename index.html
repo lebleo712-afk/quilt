@@ -17,7 +17,8 @@
 		</div>
 		<nav class="top-actions" aria-label="功能">
 			<button class="pill-btn" id="btn-cabinet">被柜</button>
-			<button class="pill-btn" id="btn-sound" aria-pressed="true">声音</button>
+			<button class="pill-btn" id="btn-music" aria-pressed="true">音乐</button>
+			<button class="pill-btn" id="btn-sound" aria-pressed="true">音效</button>
 			<button class="pill-btn" id="btn-help">玩法</button>
 		</nav>
 	</header>
@@ -48,6 +49,7 @@
 			<button class="prop-btn" id="btn-hint">提示 <span id="hint-left"></span></button>
 			<button class="prop-btn" id="btn-undo">撤回 <span id="undo-left"></span></button>
 			<button class="prop-btn" id="btn-restart">重来</button>
+			<button class="prop-btn replay-btn" id="btn-replay" hidden>再挑战金针</button>
 		</div>
 
 		<p class="hint" id="hint" aria-live="polite"></p>
@@ -57,6 +59,7 @@
 			<div class="bottom-actions">
 				<button class="text-btn" id="btn-result" hidden>看成绩</button>
 				<button class="text-btn" id="btn-next" hidden>下一关</button>
+				<button class="text-btn" id="btn-quit-replay" hidden>放弃再挑战</button>
 				<button class="text-btn" id="btn-practice" hidden>练习</button>
 			</div>
 		</footer>
@@ -76,7 +79,7 @@
 	</div>
 	<ul class="rules">
 		<li>每天六关，一关比一关难，所有人都是同一套。第 1 关新手三步就好，缝完第 3 关就算今天缝过。</li>
-		<li>不计时、不会输。步数越少星越多，正好最少步数、没用道具得「金针」。</li>
+		<li>不计时、不会输。步数越少星越多，正好最少步数、没用道具得「金针」。缝好的关没拿金针，可以「再挑战」，成绩只留最好的。</li>
 		<li>第 3 关起，提示和撤回每关各一次。撤回不退步数；拼乱了点「重来」，就和第一次玩一样：提示和撤回补满，金针也还能拿。</li>
 		<li>第 6 关「地狱」拿到三星，才有今天的 🏆。</li>
 		<li>缝线对上不一定就放对了，要四边都对。</li>
@@ -91,6 +94,7 @@
 	<p class="win-gold" id="win-gold"></p>
 	<p class="win-line" id="win-line"></p>
 	<button class="primary" id="btn-win-next" autofocus>下一关</button>
+	<button class="secondary" id="btn-win-replay" hidden>再挑战金针</button>
 	<div class="row">
 		<button class="text-btn" id="btn-win-practice">练习</button>
 		<button class="text-btn" data-close>看看被子</button>
@@ -116,6 +120,7 @@
 </dialog>
 
 <script src="logic.js"></script>
+<script src="music.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

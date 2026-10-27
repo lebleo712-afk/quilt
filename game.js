@@ -96,7 +96,7 @@
 	}
 
 	// ---------- 存档：读时逐项校验，写时先和磁盘上的合并，避免两个标签页互相覆盖 ----------
-	const EMPTY = { streak: 0, best: 0, last: null, days: {}, progress: null, sound: true, seenHelp: false };
+	const EMPTY = { streak: 0, best: 0, last: null, days: {}, progress: null, sound: true, music: true, seenHelp: false };
 	const isInt = (x, lo = 0) => Number.isInteger(x) && x >= lo;
 
 	function cleanLevel(l) {
@@ -131,6 +131,7 @@
 			days,
 			progress: p && typeof p === 'object' && isValidKey(p.date) && isInt(p.level) && p.level < LEVELS.length ? p : null,
 			sound: raw.sound !== false,
+			music: raw.music !== false,
 			seenHelp: raw.seenHelp === true,
 		};
 	}
@@ -144,9 +145,27 @@
 		}
 	}
 
+	/** 同一关两份成绩取好的：金针 > 星多 > 步少 > 道具少，一样就留 a。 */
+	function betterRecord(a, b) {
+		if (!a || !b) return a || b;
+		const rank = r => [r.gold ? 1 : 0, r.stars, -r.steps, -r.props];
+		const [ra, rb] = [rank(a), rank(b)];
+		const i = ra.findIndex((x, k) => x !== rb[k]);
+		return i >= 0 && rb[i] > ra[i] ? b : a;
+	}
+
+	/** 完成记录只增不删；同一关两边都有（再挑战刷新过）就取好的那份。 */
 	function mergeDays(a, b) {
 		const out = { ...a };
-		for (const [k, d] of Object.entries(b)) out[k] = out[k] ? { levels: { ...d.levels, ...out[k].levels } } : d;
+		for (const [k, d] of Object.entries(b)) {
+			if (!out[k]) {
+				out[k] = d;
+				continue;
+			}
+			const levels = { ...d.levels, ...out[k].levels };
+			Object.keys(d.levels).forEach(i => { levels[i] = betterRecord(out[k].levels[i], d.levels[i]); });
+			out[k] = { levels };
+		}
 		return out;
 	}
 
@@ -171,13 +190,17 @@
 			best: Math.max(disk.best, mine.best, streak),
 			progress: pickProgress(disk.progress, mine.progress),
 			seenHelp: disk.seenHelp || mine.seenHelp,
+			// 开关以磁盘为准（另一个页面刚切过）；本页切开关时 saveStore 再用 patch 盖回去
+			sound: disk.sound,
+			music: disk.music,
 		};
 	}
 
 	let store = readDisk();
 	/** patch.progress 是本页刚走的一步，直接以本页为准，不和磁盘比步数。 */
 	function saveStore(patch) {
-		const merged = mergeStores(readDisk(), { ...store, ...patch });
+		const toggles = Object.fromEntries(['sound', 'music'].filter(k => k in patch).map(k => [k, patch[k]]));
+		const merged = { ...mergeStores(readDisk(), { ...store, ...patch }), ...toggles };
 		store = 'progress' in patch ? { ...merged, progress: patch.progress } : merged;
 		try {
 			localStorage.setItem(STORE_KEY, JSON.stringify(store));
@@ -256,15 +279,63 @@
 
 	// ---------- 声音（iOS 要在第一次触摸时解锁） ----------
 	let audio = null;
+	let music = null;
 	function ensureAudio() {
-		if (!store.sound) return null;
 		const AC = window.AudioContext || window.webkitAudioContext;
 		if (!AC) return null;
-		if (!audio) audio = new AC();
-		if (audio.state === 'suspended') audio.resume();
+		try {
+			if (!audio) {
+				audio = new AC();
+				music = window.QuiltMusic ? window.QuiltMusic.createMusic(audio) : null;
+			}
+			// iOS 切后台回来可能是 interrupted，不是 running 就恢复一下
+			if (audio.state !== 'running' && !document.hidden) audio.resume().catch(() => {});
+		} catch (err) {
+			console.error('[quilt] 声音初始化失败', err);
+		}
 		return audio;
 	}
+	/** iPhone 的声音类型用 ambient：静音键打开就不出声，也不打断别的 App 正在放的音乐、播客。 */
+	function applyAudioSession() {
+		try {
+			if (navigator.audioSession) navigator.audioSession.type = 'ambient';
+		} catch {
+			/* 老系统没有这个接口，系统默认也是静音键打开就不出声 */
+		}
+	}
+
+	/** 第一次触摸时解锁声音：iOS 要在手势里播一下才放行。音效、音乐都关着就不碰声音。 */
+	function unlockAudio() {
+		if (!store.sound && !store.music) return;
+		applyAudioSession();
+		const ctx = ensureAudio();
+		if (!ctx) return;
+		try {
+			const src = ctx.createBufferSource();
+			src.buffer = ctx.createBuffer(1, 1, 22050);
+			src.connect(ctx.destination);
+			src.start(0);
+		} catch {
+			/* 解锁失败就等下一次触摸 */
+		}
+		syncMusic();
+	}
+	['pointerdown', 'touchend', 'click', 'keydown'].forEach(type => document.addEventListener(type, unlockAudio, true));
+
+	function syncMusic() {
+		if (!music) return;
+		if (store.music && !document.hidden) music.start();
+		else music.stop();
+	}
+	document.addEventListener('visibilitychange', () => {
+		if (!audio) return;
+		syncMusic();
+		if (document.hidden) audio.suspend().catch(() => {});
+		else audio.resume().catch(() => {});
+	});
+
 	function tone(freq, dur, type, gain, delay = 0) {
+		if (!store.sound) return;
 		const ctx = ensureAudio();
 		if (!ctx) return;
 		const t = ctx.currentTime + delay;
@@ -283,7 +354,10 @@
 		swap: () => { tone(420, 0.08, 'triangle', 0.16); tone(210, 0.1, 'sine', 0.12); },
 		sew: k => tone(660 * Math.pow(1.04, Math.min(k, 20)), 0.22, 'sine', 0.09, 0.12),
 		star: i => tone([784, 988, 1175][i] || 1175, 0.35, 'sine', 0.13),
-		win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.5, 'sine', 0.12, 0.1 + i * 0.12)),
+		win: () => {
+			if (music && store.sound) music.duck(CELEBRATE_MS / 1000 + 1);
+			[523, 659, 784, 1047].forEach((f, i) => tone(f, 0.5, 'sine', 0.12, 0.1 + i * 0.12));
+		},
 	};
 	function buzz(pattern) {
 		if (navigator.vibrate) navigator.vibrate(pattern);
@@ -328,13 +402,16 @@
 		return Array.isArray(pair) && pair.length === 2 && pair.every(t => isInt(t) && t < size);
 	}
 
-	function playLevel(key, level) {
+	/** replay：缝好过的关再挑战一次（冲金针），成绩只在更好时替换，不存半路进度。 */
+	function playLevel(key, level, replay = false) {
 		const puzzle = levelPuzzle(key, level);
 		const num = dayNumber(key);
 		const size = puzzle.n * puzzle.n;
 		const record = dayLevels(key)[level];
 		let g = newGame({ mode: 'daily', key, num, level, name: nameForDay(num), spec: LEVELS[level], puzzle });
-		if (record) {
+		if (record && replay) {
+			g = { ...g, replay: true, best: record };
+		} else if (record) {
 			g = { ...g, perm: [...Array(size).keys()], steps: record.steps, done: true, record };
 		} else {
 			const p = store.progress;
@@ -356,6 +433,10 @@
 		if (game.done) {
 			board.classList.add('done');
 			setHint(nextLevel(key) === null ? `今天${LEVEL_WORD}全缝完了，明天再来` : '这一关缝好了');
+			return;
+		}
+		if (game.replay) {
+			setHint(`再挑战：正好 ${puzzle.min} 步、不用提示和撤回，就是金针`);
 			return;
 		}
 		if (Q.isSolved(game.perm)) {
@@ -609,15 +690,24 @@
 		return game.steps > 0 || game.propsUsed.hint + game.propsUsed.undo > 0;
 	}
 
+	/** 今日关卡缝好了但没拿金针：可以再挑战。 */
+	function canReplay() {
+		return game.mode === 'daily' && game.key === todayKey() && game.done && !(game.best || game.record).gold;
+	}
+
 	function renderProps() {
 		const hl = propLeft('hint'), ul = propLeft('undo');
+		const replay = canReplay();
+		['btn-hint', 'btn-undo', 'btn-restart'].forEach(id => { $(id).hidden = game.done; });
+		$('btn-replay').hidden = !replay;
+		document.querySelector('.side').classList.toggle('replay-on', replay);
 		$('hint-left').textContent = hl === Infinity ? '' : `×${hl}`;
 		$('undo-left').textContent = ul === Infinity ? '' : `×${ul}`;
 		$('btn-hint').disabled = game.done || hl <= 0;
 		$('btn-undo').disabled = game.done || ul <= 0 || !game.history.length;
 		$('btn-restart').disabled = game.done || !canRestart();
 		if (restartArmed && !canRestart()) disarmRestart();
-		$('props').hidden = game.done;
+		$('props').hidden = game.done && !replay;
 	}
 
 	function currentStreak() {
@@ -638,7 +728,8 @@
 		const stale = isDaily && game.key !== today;
 		$('btn-next').hidden = !(isDaily && game.done && (stale || next !== null));
 		$('btn-next').textContent = stale ? '去缝今天的' : (next !== null ? `下一关：${LEVELS[next].label}` : '');
-		$('btn-practice').hidden = !counted && isDaily;
+		$('btn-quit-replay').hidden = !(game.replay && !game.done);
+		$('btn-practice').hidden = (!counted && isDaily) || (game.replay && !game.done);
 		$('btn-practice').textContent = isDaily ? '练习' : '回到今天';
 	}
 
@@ -686,7 +777,6 @@
 	board.addEventListener('pointerdown', e => {
 		if (!e.isPrimary || !game || game.done) return;
 		e.preventDefault();
-		ensureAudio();
 		const t = tileAt(e.clientX, e.clientY);
 		drag = t === null ? null : { id: e.pointerId, tile: t, over: null };
 	});
@@ -730,7 +820,6 @@
 		const el = e.target.closest('.tile');
 		if (!el || !game || game.done) return;
 		e.preventDefault();
-		ensureAudio();
 		tapTile(Number(el.dataset.t));
 	});
 
@@ -802,7 +891,8 @@
 	}
 
 	function saveProgress() {
-		if (game.mode !== 'daily' || game.done) return;
+		// 再挑战不存半路进度：不占掉正在缝的下一关的进度
+		if (game.mode !== 'daily' || game.done || game.replay) return;
 		const last = game.history[game.history.length - 1] || null;
 		saveStore({
 			progress: {
@@ -906,7 +996,8 @@
 			// 只记最后这一局（重来前的不算）；新手、热身的道具不计
 			props: game.level < FREE_LEVELS ? 0 : game.levelProps,
 		};
-		game = { ...game, done: true, record, hinted: [], winShown: false };
+		const best = game.replay ? betterRecord(game.best, record) : record;
+		game = { ...game, done: true, record, best, hinted: [], winShown: false };
 		select(null);
 		renderGuide();
 		renderHinted();
@@ -925,6 +1016,8 @@
 				Object.assign(patch, { streak, last: (store.last || '') > key ? store.last : key });
 			}
 			saveStore(patch);
+		} else if (game.replay && best === record) {
+			saveStore({ days: { ...store.days, [game.key]: { levels: { ...dayLevels(game.key), [game.level]: record } } } });
 		}
 		renderLevels();
 		renderBottom();
@@ -998,9 +1091,11 @@
 		$('win-name').textContent = isDaily && next === null ? dayTitle(g.key) : g.name;
 		$('win-stars').textContent = starText(r.stars);
 		$('win-gold').textContent = r.gold ? '✨ 金针：一步不多，一针不差' : '';
-		$('win-line').textContent = over <= 0
+		const line = over <= 0
 			? `${r.steps} 步，正好是最少步数${g.levelProps ? '（用了道具，没有金针）' : ''}`
 			: `${r.steps} 步，最少 ${r.min} 步就能缝好`;
+		$('win-line').textContent = line + replayNote(g);
+		$('btn-win-replay').hidden = !canReplay();
 		const nextBtn = $('btn-win-next');
 		nextBtn.hidden = isDaily && next === null && !stale;
 		nextBtn.textContent = !isDaily ? '再练一床'
@@ -1016,6 +1111,13 @@
 		game = { ...game, winShown: true };
 		$('dlg-win').showModal();
 		(nextBtn.hidden ? $('btn-share') : nextBtn).focus();
+	}
+
+	/** 再挑战的结果：刷新了就说一声，没刷新就报保留的最好成绩。 */
+	function replayNote(g) {
+		if (!g.replay) return '';
+		if (g.best === g.record) return '。刷新了这关的最好成绩';
+		return `。这关最好：${g.best.gold ? '金针' : starText(g.best.stars)} ${g.best.steps} 步`;
 	}
 
 	function untilMidnight() {
@@ -1129,6 +1231,18 @@
 	$('btn-win-next').addEventListener('click', goNext);
 	$('btn-practice').addEventListener('click', () => (game.mode === 'practice' ? startDaily() : $('dlg-practice').showModal()));
 	$('btn-win-practice').addEventListener('click', () => { closeDialog('dlg-win'); $('dlg-practice').showModal(); });
+	function replayLevel() {
+		if (!game) return;
+		closeDialog('dlg-win');
+		// 弹窗开着跨过了零点：昨天的关不能再挑战，直接去今天的
+		if (!canReplay()) {
+			checkNewDay();
+			return;
+		}
+		playLevel(game.key, game.level, true);
+	}
+	$('btn-win-replay').addEventListener('click', replayLevel);
+	$('btn-replay').addEventListener('click', replayLevel);
 	$('practice-choice').addEventListener('click', e => {
 		const btn = e.target.closest('[data-practice]');
 		if (!btn) return;
@@ -1146,11 +1260,20 @@
 
 	function renderSoundBtn() {
 		$('btn-sound').setAttribute('aria-pressed', String(store.sound));
+		$('btn-music').setAttribute('aria-pressed', String(store.music));
 	}
-	$('btn-sound').addEventListener('click', () => {
-		saveStore({ sound: !store.sound });
+	function toggleAudio(key) {
+		saveStore({ [key]: !store[key] });
 		renderSoundBtn();
-		if (store.sound) sound.tap();
+		applyAudioSession();
+		if (store.sound || store.music) ensureAudio();
+		syncMusic();
+		if (key === 'sound' && store.sound) sound.tap();
+	}
+	$('btn-sound').addEventListener('click', () => toggleAudio('sound'));
+	$('btn-music').addEventListener('click', () => toggleAudio('music'));
+	$('btn-quit-replay').addEventListener('click', () => {
+		if (game && game.replay && !game.done) playLevel(game.key, game.level);
 	});
 
 	// 另一个标签页存了档：合并进来；当前这关在那边缝好了，这边也切到已完成
@@ -1159,9 +1282,15 @@
 		store = mergeStores(readDisk(), store);
 		if (!game) return;
 		const p = store.progress;
-		const sameLevel = p && game.mode === 'daily' && !game.done && p.date === game.key && p.level === game.level;
+		const sameLevel = p && game.mode === 'daily' && !game.done && !game.replay && p.date === game.key && p.level === game.level;
 		const aheadElsewhere = sameLevel && (p.steps > game.steps || (isInt(p.levelProps) && p.levelProps > game.levelProps));
-		if (game.mode === 'daily' && !game.done && dayLevels(game.key)[game.level]) playLevel(game.key, game.level);
+		renderSoundBtn();
+		applyAudioSession();
+		syncMusic();
+		// 另一个页面刷新了这关的最好成绩（比如拿了金针）：本页的再挑战按钮跟着更新
+		const rec = game.mode === 'daily' ? dayLevels(game.key)[game.level] : null;
+		if (rec && (game.replay || game.done)) game = { ...game, best: betterRecord(game.best, rec) };
+		if (game.mode === 'daily' && !game.done && !game.replay && dayLevels(game.key)[game.level]) playLevel(game.key, game.level);
 		else if (aheadElsewhere) {
 			playLevel(game.key, game.level);
 			setHint('已接上另一个页面里的进度');
