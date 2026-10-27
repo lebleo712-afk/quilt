@@ -131,7 +131,8 @@
 			days,
 			progress: p && typeof p === 'object' && isValidKey(p.date) && isInt(p.level) && p.level < LEVELS.length ? p : null,
 			sound: raw.sound !== false,
-			music: raw.music !== false,
+			// 旧存档没有 music：跟着原来的声音开关走，关过声音的人更新后不会突然放音乐
+			music: 'music' in raw ? raw.music !== false : raw.sound !== false,
 			seenHelp: raw.seenHelp === true,
 		};
 	}

@@ -1,6 +1,7 @@
 'use strict';
 /**
- * 百衲被背景音乐：WebAudio 现场合成的八音盒小曲，不需要音频文件。浏览器和小游戏共用。
+ * 百衲被背景音乐：WebAudio 现场合成的八音盒小曲，不需要音频文件。网页版和小游戏共用这一份。
+ * 网页版用 createMusic 边放边排；小游戏用 renderCycle 预先录成 mp3（静音键要能管住它，见小游戏 tools/render-audio.cjs）。
  * 8 小节一轮（C G Am Em F C F G），旋律两段轮流：A 段、间奏、B 段、间奏……约 107 秒才完全重复一次。
  * 间奏只留分解和弦和几声高音，听久了不腻。
  */
@@ -51,66 +52,76 @@
 
 	const hz = midi => 440 * Math.pow(2, (midi - 69) / 12);
 
+	/** 一个音：正弦基音 + 一点二倍泛音，敲一下慢慢散掉，像八音盒。 */
+	function bell(ctx, out, midi, t, gain, decay, overtone = 0.25) {
+		const f = hz(midi);
+		const g = ctx.createGain();
+		g.gain.setValueAtTime(0.0001, t);
+		g.gain.exponentialRampToValueAtTime(gain, t + 0.008);
+		g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+		g.connect(out);
+		[[f, 1], [f * 2, overtone]].forEach(([freq, level]) => {
+			if (!level) return;
+			const osc = ctx.createOscillator();
+			const lg = ctx.createGain();
+			osc.type = 'sine';
+			osc.frequency.setValueAtTime(freq, t);
+			lg.gain.value = level;
+			osc.connect(lg);
+			lg.connect(g);
+			osc.start(t);
+			osc.stop(t + decay + 0.05);
+		});
+	}
+
+	function bass(ctx, out, midi, t) {
+		const osc = ctx.createOscillator();
+		const g = ctx.createGain();
+		osc.type = 'triangle';
+		osc.frequency.setValueAtTime(hz(midi), t);
+		g.gain.setValueAtTime(0.0001, t);
+		g.gain.exponentialRampToValueAtTime(0.24, t + 0.04);
+		g.gain.exponentialRampToValueAtTime(0.0001, t + BEAT * BAR_BEATS);
+		osc.connect(g);
+		g.connect(out);
+		osc.start(t);
+		osc.stop(t + BEAT * BAR_BEATS + 0.05);
+	}
+
+	/** 排第 index 小节（从开始算的总序号）的所有音，接到 out 上。 */
+	function scheduleBar(ctx, out, index, t) {
+		const bar = BARS[index % BARS.length];
+		const melody = MELODIES[Math.floor(index / BARS.length) % MELODIES.length];
+		bass(ctx, out, bar.bass, t);
+		ARP.forEach((k, i) => bell(ctx, out, bar.chord[k], t + i * BEAT / 2, i === 0 ? 0.13 : 0.08, 1.1, 0.15));
+		if (melody) {
+			melody.filter(m => m[0] === index % BARS.length)
+				.forEach(([, beat, midi, len]) => bell(ctx, out, midi, t + beat * BEAT, 0.3, Math.max(1.2, len * BEAT * 1.2)));
+		} else if (index % 2 === 0) {
+			bell(ctx, out, bar.chord[3] + 12, t + 2 * BEAT, 0.12, 2);
+		}
+	}
+
+	const BAR_SECONDS = BEAT * BAR_BEATS;
+	const CYCLE_BARS = BARS.length * MELODIES.length;
+	const CYCLE_SECONDS = CYCLE_BARS * BAR_SECONDS; // 完整一轮（A、间奏、B、间奏）
+
+	/** 从 t0 开始排完整一轮，录音用（离线渲染）。最后几个音的尾巴会拖过 CYCLE_SECONDS。 */
+	function renderCycle(ctx, out, t0 = 0) {
+		for (let i = 0; i < CYCLE_BARS; i++) scheduleBar(ctx, out, i, t0 + i * BAR_SECONDS);
+	}
+
 	function createMusic(ctx) {
 		let master = null;
 		let timer = null;
 		let nextBar = 0; // 下一个要排的小节（从开始算的总序号）
 		let barTime = 0; // 这个小节开始的时间
 
-		/** 一个音：正弦基音 + 一点二倍泛音，敲一下慢慢散掉，像八音盒。 */
-		function bell(midi, t, gain, decay, overtone = 0.25) {
-			const f = hz(midi);
-			const g = ctx.createGain();
-			g.gain.setValueAtTime(0.0001, t);
-			g.gain.exponentialRampToValueAtTime(gain, t + 0.008);
-			g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
-			g.connect(master);
-			[[f, 1], [f * 2, overtone]].forEach(([freq, level]) => {
-				if (!level) return;
-				const osc = ctx.createOscillator();
-				const lg = ctx.createGain();
-				osc.type = 'sine';
-				osc.frequency.setValueAtTime(freq, t);
-				lg.gain.value = level;
-				osc.connect(lg);
-				lg.connect(g);
-				osc.start(t);
-				osc.stop(t + decay + 0.05);
-			});
-		}
-
-		function bass(midi, t) {
-			const osc = ctx.createOscillator();
-			const g = ctx.createGain();
-			osc.type = 'triangle';
-			osc.frequency.setValueAtTime(hz(midi), t);
-			g.gain.setValueAtTime(0.0001, t);
-			g.gain.exponentialRampToValueAtTime(0.24, t + 0.04);
-			g.gain.exponentialRampToValueAtTime(0.0001, t + BEAT * BAR_BEATS);
-			osc.connect(g);
-			g.connect(master);
-			osc.start(t);
-			osc.stop(t + BEAT * BAR_BEATS + 0.05);
-		}
-
-		function scheduleBar(index, t) {
-			const bar = BARS[index % BARS.length];
-			const melody = MELODIES[Math.floor(index / BARS.length) % MELODIES.length];
-			bass(bar.bass, t);
-			ARP.forEach((k, i) => bell(bar.chord[k], t + i * BEAT / 2, i === 0 ? 0.13 : 0.08, 1.1, 0.15));
-			if (melody) {
-				melody.filter(m => m[0] === index % BARS.length)
-					.forEach(([, beat, midi, len]) => bell(midi, t + beat * BEAT, 0.3, Math.max(1.2, len * BEAT * 1.2)));
-			} else if (index % 2 === 0) {
-				bell(bar.chord[3] + 12, t + 2 * BEAT, 0.12, 2);
-			}
-		}
-
 		function tick() {
 			while (barTime < ctx.currentTime + LOOKAHEAD) {
-				scheduleBar(nextBar, barTime);
+				scheduleBar(ctx, master, nextBar, barTime);
 				nextBar += 1;
-				barTime += BEAT * BAR_BEATS;
+				barTime += BAR_SECONDS;
 			}
 		}
 
@@ -156,7 +167,7 @@
 		};
 	}
 
-	const api = { createMusic };
+	const api = { createMusic, renderCycle, CYCLE_SECONDS, VOLUME, DUCK_LEVEL };
 	if (typeof module !== 'undefined' && module.exports) module.exports = api;
 	else root.QuiltMusic = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
