@@ -11,6 +11,13 @@
 	const NO_PROPS_USED = { hint: 0, undo: 0 };
 	const FREE_LEVELS = 2; // 新手、热身两关道具随便用
 	const COUNTS_AS_DAY = 2; // 缝完第 3 关「入门」（下标 2）就算今天缝过
+	/** GoatCounter 自定义事件埋点；没加载统计脚本（或被拦）时静默跳过，绝不影响游戏。 */
+	const track = (path, title) => {
+		try {
+			const gc = window.goatcounter;
+			if (gc && typeof gc.count === 'function') gc.count({ path, title, event: true });
+		} catch (e) { /* 统计失败忽略 */ }
+	};
 	/** 新手关每一步的讲解，跟着「先点这块 / 再点这块」走。 */
 	const TUTORIAL = [
 		'两块布挨着的那半边，颜色和形状一样就能缝上。先点写着「先点这块」的布',
@@ -460,6 +467,7 @@
 			}
 		}
 		show(g);
+		if (!game.done) track('play/level-' + level + (game.replay ? '-再挑战' : ''), '开局 第' + (level + 1) + '关' + (game.replay ? '（再挑战）' : ''));
 		if (game.done) {
 			board.classList.add('done');
 			setHint(nextLevel(key) !== null ? '这一关缝好了'
@@ -485,6 +493,7 @@
 	function startPractice(level) {
 		const puzzle = Q.makePuzzle(`practice-${Date.now()}-${Math.random()}`, LEVELS[level]);
 		show(newGame({ mode: 'practice', key: null, num: null, level, name: randomName(), spec: LEVELS[level], puzzle }));
+		track('play/practice-' + level, '练习 第' + (level + 1) + '关');
 		setHint(`练习 · ${LEVELS[level].label}，不计入成绩`);
 	}
 
@@ -1094,6 +1103,8 @@
 		renderBottom();
 		setHint(game.mode !== 'daily' ? '练习这床缝好了'
 			: game.level === BONUS_LEVEL ? `${Q.BONUS.label}缝好了！今天全部缝完` : `第 ${game.level + 1} 关缝好了！`);
+		track('clear/level-' + game.level + (record.gold ? '-金针' : ''),
+			(game.mode === 'daily' ? '通关' : '练习通关') + ' 第' + (game.level + 1) + '关' + (record.gold ? ' 金针' : ' ' + record.stars + '星'));
 		celebrate(record);
 		later(showWinWhenFree, CELEBRATE_MS);
 	}
